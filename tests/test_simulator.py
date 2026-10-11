@@ -214,3 +214,16 @@ def test_intro_rate_transition():
     # Month 13 (index 12) should be prime + margin = 5.0 + 2.0 = 7.0
     assert records[12].effective_apr == 7.0
 
+
+def test_row_level_cent_rounding_consistency():
+    config = HelocConfig(
+        initial_principal=43210.55,
+        credit_limit=100000.0,
+        margin=2.33,
+        monthly_prepayment=123.45,
+    )
+    summary, records, df = simulate_heloc(config)
+    for r in records:
+        assert round(r.interest_paid + r.principal_paid, 2) == r.total_payment
+        assert round(r.required_payment + r.prepayment, 2) == r.total_payment
+

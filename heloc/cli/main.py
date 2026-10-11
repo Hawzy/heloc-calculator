@@ -23,6 +23,19 @@ def main(args: Optional[list[str]] = None) -> int:
     parser.add_argument("--cap", type=float, default=18.0, help="Lifetime interest rate ceiling (%%) (default: 18.0)")
     parser.add_argument("--prepayment", type=float, default=0.0, help="Extra monthly principal prepayment ($) (default: 0.0)")
     parser.add_argument("--scenario", choices=["flat", "rising", "stress_test"], default="flat", help="Prime rate scenario")
+    parser.add_argument(
+        "--balance-method",
+        choices=["average_daily_balance", "adjusted_balance", "previous_balance"],
+        default="average_daily_balance",
+        help="Balance method for interest calculation (default: average_daily_balance)",
+    )
+    parser.add_argument(
+        "--year-basis",
+        type=int,
+        choices=[365, 360],
+        default=365,
+        help="Year basis convention for DPR calculation (365 or 360) (default: 365)",
+    )
     parser.add_argument("--csv", type=str, default=None, help="File path to export monthly CSV schedule")
 
     parsed = parser.parse_args(args)
@@ -41,6 +54,8 @@ def main(args: Optional[list[str]] = None) -> int:
             repayment_period_years=parsed.repay_years,
             lifetime_rate_cap=parsed.cap,
             monthly_prepayment=parsed.prepayment,
+            balance_method=parsed.balance_method,
+            year_basis=parsed.year_basis,
             export_csv_path=parsed.csv,
         )
     except (ValueError, ValidationError) as exc:

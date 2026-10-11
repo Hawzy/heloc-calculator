@@ -16,9 +16,11 @@ def calculate_heloc_trajectory(
     prime_rate: float = 8.5,
     rate_scenario: str = "flat",
     annual_rate_step: float = 0.5,
+    custom_rates: Optional[list[float]] = None,
     draw_period_years: int = 10,
     repayment_period_years: int = 20,
     lifetime_rate_cap: float = 18.0,
+    regulatory_ceiling: float = 25.0,
     monthly_prepayment: float = 0.0,
     balance_method: str = "average_daily_balance",
     year_basis: int = 365,
@@ -38,11 +40,13 @@ def calculate_heloc_trajectory(
         intro_apr: Optional promotional introductory APR percentage (e.g., 0.99).
         intro_duration_months: Number of months the introductory APR remains active.
         prime_rate: Baseline macroeconomic Prime rate (e.g., 8.5).
-        rate_scenario: Trajectory profile: 'flat', 'rising', or 'stress_test'.
+        rate_scenario: Trajectory profile: 'flat', 'rising', 'stress_test', or 'custom'.
         annual_rate_step: Rate increment per year if using the 'rising' scenario.
+        custom_rates: Optional list of explicit monthly Prime rates for custom scenario.
         draw_period_years: Number of years in the draw phase (default: 10).
         repayment_period_years: Number of years in the repayment phase (default: 20).
         lifetime_rate_cap: Contractual maximum interest rate ceiling (e.g., 18.0).
+        regulatory_ceiling: Washington Consumer Loan Act usury limit percentage (default: 25.0).
         monthly_prepayment: Extra monthly principal payment beyond required amount.
         balance_method: 'average_daily_balance', 'adjusted_balance', or 'previous_balance'.
         year_basis: Year denominator convention: 365 or 360.
@@ -53,12 +57,17 @@ def calculate_heloc_trajectory(
               milestones, annualized trajectory breakdown, and CSV export path.
     """
     total_months = (draw_period_years + repayment_period_years) * 12
-    scenario_enum = RateScenarioType(rate_scenario.lower())
+    if custom_rates is not None and rate_scenario.lower() == "flat":
+        scenario_enum = RateScenarioType.CUSTOM
+    else:
+        scenario_enum = RateScenarioType(rate_scenario.lower())
+
     prime_schedule = generate_prime_rates(
         total_months=total_months,
         scenario=scenario_enum,
         base_prime=prime_rate,
         annual_step=annual_rate_step,
+        custom_rates=custom_rates,
     )
 
     config = HelocConfig(
@@ -70,6 +79,7 @@ def calculate_heloc_trajectory(
         draw_period_months=draw_period_years * 12,
         repayment_period_months=repayment_period_years * 12,
         lifetime_rate_cap=lifetime_rate_cap,
+        regulatory_ceiling=regulatory_ceiling,
         monthly_prepayment=monthly_prepayment,
         balance_method=BalanceMethod(balance_method.lower()),
         year_basis=YearBasis(year_basis),
@@ -113,7 +123,7 @@ def calculate_heloc_trajectory(
     milestones: list[dict[str, Any]] = [
         {"event": "Loan Origination", "month": 1, "balance": config.initial_principal}
     ]
-    if config.intro_apr is not None:
+    if config.intro_apr is not None and summary.actual_months_to_payoff > config.intro_duration_months:
         next_month = config.intro_duration_months + 1
         next_prime = (
             prime_schedule[config.intro_duration_months]

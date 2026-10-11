@@ -85,6 +85,11 @@ def _run_single_trajectory(
         total_principal_paid += principal_paid
         current_balance = ending_bal
 
+        int_paid = round(interest_due, 2)
+        prin_paid = round(principal_paid, 2)
+        tot_paid = round(int_paid + prin_paid, 2)
+        req_paid = round(tot_paid - round(prepayment, 2), 2)
+
         records.append(
             MonthlyRecord(
                 month=m,
@@ -93,11 +98,11 @@ def _run_single_trajectory(
                 starting_balance=round(starting_bal, 2),
                 effective_apr=round(effective_apr, 4),
                 prime_rate=round(prime_rate, 4),
-                required_payment=round(required_payment, 2),
+                required_payment=req_paid,
                 prepayment=round(prepayment, 2),
-                total_payment=round(total_payment, 2),
-                interest_paid=round(interest_due, 2),
-                principal_paid=round(principal_paid, 2),
+                total_payment=tot_paid,
+                interest_paid=int_paid,
+                principal_paid=prin_paid,
                 ending_balance=round(ending_bal, 2),
             )
         )

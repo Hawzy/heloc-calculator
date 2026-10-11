@@ -63,3 +63,13 @@ def test_cli_annual_rate_step():
         "--annual-rate-step", "0.75",
     ])
     assert exit_code == 0
+
+
+def test_cli_balance_method_and_year_basis():
+    exit_code = main([
+        "--balance", "50000",
+        "--limit", "100000",
+        "--balance-method", "adjusted_balance",
+        "--year-basis", "360",
+    ])
+    assert exit_code == 0

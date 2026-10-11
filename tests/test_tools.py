@@ -124,3 +124,44 @@ def test_calculate_heloc_trajectory_intro_rate_cap_enforcement():
 def test_reexport():
     """Verifies that calculate_heloc_trajectory is re-exported from heloc.tools."""
     assert reexported_tool is calculate_heloc_trajectory
+
+
+def test_calculate_heloc_trajectory_payoff_before_intro_expiration():
+    """Verifies that when loan is paid off before intro duration expires,
+    'Introductory Rate Expiration' is not emitted in milestones.
+    """
+    result = calculate_heloc_trajectory(
+        initial_principal=5000.0,
+        credit_limit=50000.0,
+        intro_apr=0.99,
+        intro_duration_months=12,
+        monthly_prepayment=2000.0,
+    )
+    assert result["summary"]["actual_months_to_payoff"] < 12
+    events = [m["event"] for m in result["milestones"]]
+    assert "Introductory Rate Expiration" not in events
+    assert "Loan Payoff" in events
+
+
+def test_calculate_heloc_trajectory_custom_rates_and_regulatory_ceiling():
+    """Verifies custom_rates and regulatory_ceiling parameters passed to calculate_heloc_trajectory."""
+    # Test custom_rates: provide explicit rates
+    custom_prime = [10.0] * 360
+    result_custom = calculate_heloc_trajectory(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        margin=2.0,
+        custom_rates=custom_prime,
+    )
+    # Effective APR should reflect custom prime (10.0 + 2.0 = 12.0)
+    assert result_custom["annual_trajectory"][0]["avg_apr"] == 12.0
+
+    # Test regulatory_ceiling: cap at 10.0% even when Prime 12.0 + Margin 2.0 = 14.0%
+    result_ceiling = calculate_heloc_trajectory(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        margin=2.0,
+        prime_rate=12.0,
+        regulatory_ceiling=10.0,
+    )
+    assert result_ceiling["annual_trajectory"][0]["avg_apr"] == 10.0
