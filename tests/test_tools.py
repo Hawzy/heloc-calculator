@@ -41,6 +41,18 @@ def test_calculate_heloc_trajectory_csv_export(tmp_path):
     assert os.path.exists(csv_file)
 
 
+def test_calculate_heloc_trajectory_csv_export_nested_dir(tmp_path):
+    """Verifies CSV generation when parent directory does not exist yet."""
+    csv_file = str(tmp_path / "nested" / "reports" / "schedule.csv")
+    result = calculate_heloc_trajectory(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        export_csv_path=csv_file,
+    )
+    assert result["csv_path"] == csv_file
+    assert os.path.exists(csv_file)
+
+
 def test_calculate_heloc_trajectory_defaults():
     """Verifies default argument behavior and zero prepayment baseline."""
     result = calculate_heloc_trajectory(
@@ -72,6 +84,41 @@ def test_calculate_heloc_trajectory_rising_scenario():
     assert len(trajectory) > 1
     # Average APR in year 2 should be higher than year 1 under rising rates
     assert trajectory[1]["avg_apr"] > trajectory[0]["avg_apr"]
+
+
+def test_calculate_heloc_trajectory_early_payoff_milestones():
+    """Verifies early payoff during draw period omits repayment phase shift and sorts chronologically."""
+    result = calculate_heloc_trajectory(
+        initial_principal=10000.0,
+        credit_limit=50000.0,
+        monthly_prepayment=2000.0,
+        draw_period_years=10,
+        repayment_period_years=20,
+    )
+    milestones = result["milestones"]
+    events = [m["event"] for m in milestones]
+    assert "Phase Shift: Repayment Period Begins" not in events
+    assert "Loan Payoff" in events
+
+    # Check chronological ordering
+    months = [m["month"] for m in milestones]
+    assert months == sorted(months)
+    assert result["summary"]["actual_months_to_payoff"] <= 120
+
+
+def test_calculate_heloc_trajectory_intro_rate_cap_enforcement():
+    """Verifies that next_rate on intro expiration enforces contractual caps."""
+    result = calculate_heloc_trajectory(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        margin=5.0,
+        prime_rate=15.0,  # 15 + 5 = 20.0 > cap 18.0
+        intro_apr=1.99,
+        intro_duration_months=6,
+        lifetime_rate_cap=18.0,
+    )
+    intro_milestone = next(m for m in result["milestones"] if m["event"] == "Introductory Rate Expiration")
+    assert intro_milestone["next_rate"] == 18.0
 
 
 def test_reexport():

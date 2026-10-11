@@ -1,8 +1,9 @@
 """Unified tool implementation for Antigravity AI agents."""
 
+import os
 from typing import Any, Optional
 from heloc.core.models import BalanceMethod, HelocConfig, RateScenarioType, YearBasis
-from heloc.core.rates import generate_prime_rates
+from heloc.core.rates import generate_prime_rates, get_effective_rate
 from heloc.core.simulator import simulate_heloc
 
 
@@ -77,6 +78,9 @@ def calculate_heloc_trajectory(
     summary, records, df = simulate_heloc(config, prime_schedule)
 
     if export_csv_path:
+        out_dir = os.path.dirname(export_csv_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         df.to_csv(export_csv_path, index=False)
 
     # Compile annualized milestones
@@ -95,7 +99,7 @@ def calculate_heloc_trajectory(
             .reset_index()
         )
 
-        for _, row in annual_df.iterrows():
+        for row in annual_df.to_dict(orient="records"):
             annual_records.append({
                 "year": int(row["year"]),
                 "start_balance": round(float(row["starting_balance"]), 2),
@@ -110,27 +114,34 @@ def calculate_heloc_trajectory(
         {"event": "Loan Origination", "month": 1, "balance": config.initial_principal}
     ]
     if config.intro_apr is not None:
-        next_rate = (
-            prime_schedule[config.intro_duration_months] + config.margin
+        next_month = config.intro_duration_months + 1
+        next_prime = (
+            prime_schedule[config.intro_duration_months]
             if config.intro_duration_months < len(prime_schedule)
-            else (prime_schedule[-1] + config.margin if prime_schedule else config.margin)
+            else (prime_schedule[-1] if prime_schedule else 8.5)
         )
+        next_rate = get_effective_rate(next_month, config, next_prime)
         milestones.append({
             "event": "Introductory Rate Expiration",
             "month": config.intro_duration_months,
             "next_rate": round(next_rate, 4),
         })
-    milestones.append({
-        "event": "Phase Shift: Repayment Period Begins",
-        "month": config.draw_period_months + 1,
-        "payment_shock_pct": summary.payment_shock_pct,
-        "payment_shock_amount": summary.payment_shock_amount,
-    })
+
+    if summary.actual_months_to_payoff > config.draw_period_months:
+        milestones.append({
+            "event": "Phase Shift: Repayment Period Begins",
+            "month": config.draw_period_months + 1,
+            "payment_shock_pct": summary.payment_shock_pct,
+            "payment_shock_amount": summary.payment_shock_amount,
+        })
+
     milestones.append({
         "event": "Loan Payoff",
         "month": summary.actual_months_to_payoff,
         "balance": 0.0,
     })
+
+    milestones.sort(key=lambda m: m["month"])
 
     return {
         "summary": summary.model_dump(),
