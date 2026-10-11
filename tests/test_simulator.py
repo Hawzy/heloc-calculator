@@ -170,3 +170,47 @@ def test_adjusted_balance_method():
     # In month 1 of draw, adjusted balance subtracts prepayment before interest calculation
     assert adj_records[0].interest_paid < base_records[0].interest_paid
     assert adj_summary.total_interest_paid < base_summary.total_interest_paid
+
+
+def test_custom_prime_schedule_padding():
+    config = HelocConfig(
+        initial_principal=1000.0,
+        credit_limit=5000.0,
+        draw_period_months=12,
+        repayment_period_months=12,
+        margin=2.0,
+    )
+    # total_months = 24
+    # prime_schedule length 3
+    prime_schedule = [5.0, 6.0, 7.0]
+    summary, records, df = simulate_heloc(config, prime_schedule=prime_schedule)
+
+    assert len(records) == 24
+    # Month 3 (index 2) should have prime_rate 7.0
+    assert records[2].prime_rate == 7.0
+    # Month 4 (index 3) should be padded with 7.0
+    assert records[3].prime_rate == 7.0
+    # Month 24 (index 23) should be padded with 7.0
+    assert records[23].prime_rate == 7.0
+
+
+def test_intro_rate_transition():
+    config = HelocConfig(
+        initial_principal=1000.0,
+        credit_limit=5000.0,
+        margin=2.0,
+        intro_apr=3.0,
+        intro_duration_months=12,
+        draw_period_months=12,
+        repayment_period_months=12,
+    )
+    prime = [5.0] * 24
+    summary, records, df = simulate_heloc(config, prime_schedule=prime)
+
+    # Months 1-12 should have intro_apr (3.0)
+    for i in range(0, 12):
+        assert records[i].effective_apr == 3.0
+
+    # Month 13 (index 12) should be prime + margin = 5.0 + 2.0 = 7.0
+    assert records[12].effective_apr == 7.0
+
