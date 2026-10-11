@@ -129,3 +129,32 @@ def test_core_reexports() -> None:
     )
     assert core_gpr is generate_prime_rates
     assert core_ger is get_effective_rate
+
+
+def test_get_effective_rate_invalid_month() -> None:
+    config = HelocConfig(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+    )
+    with pytest.raises(ValueError, match="month must be greater than or equal to 1"):
+        get_effective_rate(month=0, config=config, prime_rate=7.0)
+    with pytest.raises(ValueError, match="month must be greater than or equal to 1"):
+        get_effective_rate(month=-5, config=config, prime_rate=7.0)
+
+
+def test_get_effective_rate_floor_at_zero() -> None:
+    config = HelocConfig(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        margin=1.0,
+    )
+    # If prime is extremely negative, effective rate floors at 0.0
+    assert get_effective_rate(month=1, config=config, prime_rate=-5.0) == 0.0
+
+
+def test_generate_prime_rates_non_positive_months() -> None:
+    assert generate_prime_rates(total_months=0, scenario=RateScenarioType.FLAT, base_prime=7.0) == []
+    assert generate_prime_rates(total_months=-1, scenario=RateScenarioType.RISING, base_prime=7.0) == []
+    assert generate_prime_rates(total_months=0, scenario=RateScenarioType.STRESS_TEST, base_prime=7.0) == []
+    assert generate_prime_rates(total_months=0, scenario=RateScenarioType.CUSTOM, base_prime=7.0, custom_rates=[7.0]) == []
+

@@ -21,18 +21,21 @@ def get_effective_rate(month: int, config: HelocConfig, prime_rate: float) -> fl
         config: HELOC configuration parameters containing margins, caps, and intro terms.
         prime_rate: Underlying Prime rate for the current billing cycle (%).
 
-    Returns:
-        Effective APR percentage clamped by contractual and statutory usury ceilings.
+    Raises:
+        ValueError: If month is less than 1.
     """
+    if month < 1:
+        raise ValueError("month must be greater than or equal to 1")
+
     applied_ceiling = min(config.lifetime_rate_cap, config.regulatory_ceiling)
 
     # Check introductory teaser period
     if config.intro_apr is not None and month <= config.intro_duration_months:
-        return min(config.intro_apr, applied_ceiling)
+        return max(0.0, min(config.intro_apr, applied_ceiling))
 
     # Fully indexed variable rate: Prime + Margin
     raw_rate = prime_rate + config.margin
-    return min(raw_rate, applied_ceiling)
+    return max(0.0, min(raw_rate, applied_ceiling))
 
 
 def generate_prime_rates(
@@ -54,6 +57,9 @@ def generate_prime_rates(
     Returns:
         List of float Prime rates corresponding to each month [0..total_months-1].
     """
+    if total_months <= 0:
+        return []
+
     if scenario == RateScenarioType.CUSTOM and custom_rates is not None:
         if len(custom_rates) < total_months:
             # Pad with last rate (or base_prime if empty) if list is shorter than total months
