@@ -1,8 +1,8 @@
 """Data contracts, enums, and configuration schemas for HELOC simulations."""
 
 from enum import Enum
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Literal, Optional
+from pydantic import BaseModel, Field, model_validator
 
 
 class BalanceMethod(str, Enum):
@@ -45,13 +45,19 @@ class HelocConfig(BaseModel):
     balance_method: BalanceMethod = Field(default=BalanceMethod.AVERAGE_DAILY_BALANCE)
     year_basis: YearBasis = Field(default=YearBasis.DAYS_365)
 
+    @model_validator(mode="after")
+    def validate_principal_vs_limit(self) -> "HelocConfig":
+        if self.initial_principal > self.credit_limit:
+            raise ValueError("initial_principal cannot exceed credit_limit")
+        return self
+
 
 class MonthlyRecord(BaseModel):
     """Individual monthly amortization line item."""
 
     month: int
     year: int
-    phase: str  # "draw" or "repayment"
+    phase: Literal["draw", "repayment"]
     starting_balance: float
     effective_apr: float
     prime_rate: float

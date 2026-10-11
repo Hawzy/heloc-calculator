@@ -19,6 +19,7 @@ def test_heloc_config_defaults():
     assert config.repayment_period_months == 240
     assert config.lifetime_rate_cap == 18.0
     assert config.regulatory_ceiling == 25.0
+    assert config.monthly_prepayment == 0.0
     assert config.balance_method == BalanceMethod.AVERAGE_DAILY_BALANCE
     assert config.year_basis == YearBasis.DAYS_365
 
@@ -31,6 +32,30 @@ def test_heloc_config_validation():
     with pytest.raises(ValidationError):
         # Credit limit cannot be zero or negative
         HelocConfig(initial_principal=50000.0, credit_limit=0.0)
+
+    with pytest.raises(ValidationError):
+        # Initial principal cannot exceed credit limit
+        HelocConfig(initial_principal=150000.0, credit_limit=100000.0)
+
+    with pytest.raises(ValidationError):
+        # Margin cannot be negative
+        HelocConfig(initial_principal=50000.0, credit_limit=100000.0, margin=-1.0)
+
+    with pytest.raises(ValidationError):
+        # Intro APR cannot be negative
+        HelocConfig(initial_principal=50000.0, credit_limit=100000.0, intro_apr=-0.5)
+
+    with pytest.raises(ValidationError):
+        # Draw period cannot be zero or negative
+        HelocConfig(initial_principal=50000.0, credit_limit=100000.0, draw_period_months=0)
+
+    with pytest.raises(ValidationError):
+        # Repayment period cannot be zero or negative
+        HelocConfig(initial_principal=50000.0, credit_limit=100000.0, repayment_period_months=0)
+
+    with pytest.raises(ValidationError):
+        # Monthly prepayment cannot be negative
+        HelocConfig(initial_principal=50000.0, credit_limit=100000.0, monthly_prepayment=-50.0)
 
 
 def test_monthly_record_instantiation():
@@ -50,6 +75,23 @@ def test_monthly_record_instantiation():
     )
     assert record.ending_balance == 49700.0
     assert record.phase == "draw"
+
+    with pytest.raises(ValidationError):
+        # Invalid phase must fail
+        MonthlyRecord(
+            month=1,
+            year=1,
+            phase="invalid_phase",
+            starting_balance=50000.0,
+            effective_apr=0.99,
+            prime_rate=8.5,
+            required_payment=41.25,
+            prepayment=300.0,
+            total_payment=341.25,
+            interest_paid=41.25,
+            principal_paid=300.0,
+            ending_balance=49700.0,
+        )
 
 
 def test_trajectory_summary_instantiation():
