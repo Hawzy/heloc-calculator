@@ -22,7 +22,12 @@ def daily_periodic_rate(
 
     Returns:
         The daily interest rate as a decimal (e.g., 0.00019863...).
+
+    Raises:
+        ValueError: If year_basis is less than or equal to 0.
     """
+    if int(year_basis) <= 0:
+        raise ValueError("year_basis must be greater than 0")
     return (annual_rate_pct / 100.0) / int(year_basis)
 
 
@@ -81,7 +86,7 @@ def amortized_monthly_installment(
     if principal <= 0.0 or remaining_months <= 0:
         return 0.0
 
-    if annual_rate_pct == 0.0:
+    if annual_rate_pct <= 0.0:
         return principal / remaining_months
 
     monthly_rate = (annual_rate_pct / 100.0) / 12.0
