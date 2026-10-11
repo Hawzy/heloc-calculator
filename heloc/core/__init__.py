@@ -19,6 +19,7 @@ from heloc.core.rates import (
     generate_prime_rates,
     get_effective_rate,
 )
+from heloc.core.simulator import simulate_heloc
 
 __all__ = [
     "BalanceMethod",
@@ -33,4 +34,6 @@ __all__ = [
     "amortized_monthly_installment",
     "get_effective_rate",
     "generate_prime_rates",
+    "simulate_heloc",
 ]
+
