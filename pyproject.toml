@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heloc-calculator"
+version = "0.1.0"
+description = "HELOC simulation engine"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
