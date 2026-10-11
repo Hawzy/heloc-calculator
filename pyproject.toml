@@ -17,6 +17,9 @@ dev = [
     "pytest>=8.0",
 ]
 
+[project.scripts]
+heloc = "heloc.cli.main:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["heloc*"]

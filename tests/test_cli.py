@@ -1,7 +1,6 @@
+import os
 import subprocess
 import sys
-import tempfile
-import os
 from heloc.cli.main import main
 
 
@@ -47,3 +46,20 @@ def test_cli_main_direct_invocation_with_csv(tmp_path):
     ])
     assert exit_code == 0
     assert os.path.exists(csv_file)
+
+
+def test_cli_balance_exceeds_limit_validation(capsys):
+    exit_code = main(["--balance", "150000", "--limit", "100000"])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+
+
+def test_cli_annual_rate_step():
+    exit_code = main([
+        "--balance", "50000",
+        "--limit", "100000",
+        "--scenario", "rising",
+        "--annual-rate-step", "0.75",
+    ])
+    assert exit_code == 0
