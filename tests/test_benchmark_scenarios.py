@@ -4,8 +4,7 @@ Validates the complete HELOC trajectory calculation engine against regulatory
 and economic scenarios outlined in the mathematical blueprint and statutes.
 """
 
-from heloc.core.models import HelocConfig, RateScenarioType, YearBasis
-from heloc.core.rates import generate_prime_rates
+from heloc.core.models import HelocConfig
 from heloc.core.simulator import simulate_heloc
 from heloc.tools.trajectory_tool import calculate_heloc_trajectory
 
@@ -34,6 +33,12 @@ def test_full_document_blueprint_scenario():
     assert summary["interest_savings_vs_baseline"] > 5000.0
     assert summary["months_saved_vs_baseline"] > 24
     assert result["milestones"][0]["event"] == "Loan Origination"
+    assert {
+        "Loan Origination",
+        "Introductory Rate Expiration",
+        "Phase Shift: Repayment Period Begins",
+        "Loan Payoff",
+    }.issubset({m["event"] for m in result["milestones"]})
 
 
 def test_washington_statutory_usury_cap_benchmark():
@@ -52,8 +57,9 @@ def test_washington_statutory_usury_cap_benchmark():
     )
     prime = [25.0] * 24
     summary, records, df = simulate_heloc(config, prime_schedule=prime)
+    assert len(records) == 24
     for r in records:
-        assert r.effective_apr <= 25.0
+        assert r.effective_apr == 25.0
 
 
 def test_zero_prepayment_baseline_identity():
