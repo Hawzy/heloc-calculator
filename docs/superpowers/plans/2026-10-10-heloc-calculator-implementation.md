@@ -1,6 +1,6 @@
 # HELOC Simulation Engine & Antigravity Tool Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a robust, localized Home Equity Line of Credit (HELOC) simulation engine in Python featuring interest-only draw accounting (ADB/365/360), dynamic repayment re-amortization, payment shock modeling, Washington State usury cap enforcement (WAC 208-620-235), comparative prepayment tracking, an interactive CLI, and Google Antigravity AI agent tool callables.
 
@@ -67,7 +67,7 @@ graph TD
 **Interfaces:**
 - Produces: Package installation and clean test runner execution.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_scaffolding.py`:
 ```python
 def test_package_import():
@@ -76,11 +76,11 @@ def test_package_import():
     assert heloc.__version__ == "0.1.0"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_scaffolding.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc'` or `AttributeError: module 'heloc' has no attribute '__version__'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `pyproject.toml`:
 ```toml
 [build-system]
@@ -115,11 +115,11 @@ __version__ = "0.1.0"
 ```
 Create empty `tests/__init__.py` and `tests/conftest.py`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_scaffolding.py -v`
 Expected: PASS (1 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add pyproject.toml heloc/__init__.py tests/__init__.py tests/conftest.py tests/test_scaffolding.py
 git commit -m "chore: scaffold project structure and packaging configuration"
@@ -138,7 +138,7 @@ git commit -m "chore: scaffold project structure and packaging configuration"
 - Consumes: Pydantic v2
 - Produces: `BalanceMethod`, `YearBasis`, `RateScenarioType`, `HelocConfig`, `MonthlyRecord`, `TrajectorySummary`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_models.py`:
 ```python
 import pytest
@@ -187,11 +187,11 @@ def test_monthly_record_instantiation():
     assert record.ending_balance == 49700.0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_models.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc.core'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/core/__init__.py`:
 ```python
 """Core computational modules for HELOC simulation."""
@@ -269,11 +269,11 @@ class TrajectorySummary(BaseModel):
     months_saved_vs_baseline: int = 0
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_models.py -v`
 Expected: PASS (3 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/core/__init__.py heloc/core/models.py tests/test_models.py
 git commit -m "feat(core): implement domain models and Pydantic schemas"
@@ -291,7 +291,7 @@ git commit -m "feat(core): implement domain models and Pydantic schemas"
 - Consumes: `YearBasis`
 - Produces: `daily_periodic_rate`, `average_daily_balance`, `monthly_finance_charge`, `amortized_monthly_installment`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_formulas.py`:
 ```python
 import pytest
@@ -336,11 +336,11 @@ def test_amortized_monthly_installment_edge_cases():
     assert amortized_monthly_installment(1000.0, 5.0, 0) == 0.0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_formulas.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc.core.formulas'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/core/formulas.py`:
 ```python
 """Financial formulas for Daily Periodic Rates, ADB, and loan amortization."""
@@ -382,11 +382,11 @@ def amortized_monthly_installment(principal: float, annual_rate_pct: float, rema
     return principal * (r * factor) / (factor - 1.0)
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_formulas.py -v`
 Expected: PASS (5 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/core/formulas.py tests/test_formulas.py
 git commit -m "feat(core): implement DPR, ADB, and amortization formulas"
@@ -404,7 +404,7 @@ git commit -m "feat(core): implement DPR, ADB, and amortization formulas"
 - Consumes: `HelocConfig`, `RateScenarioType`
 - Produces: `get_effective_rate`, `generate_prime_rates`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_rates.py`:
 ```python
 from heloc.core.models import HelocConfig, RateScenarioType
@@ -460,11 +460,11 @@ def test_scenario_generators():
     assert rising[24] == 7.0  # Month 25 (Year 3)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_rates.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc.core.rates'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/core/rates.py`:
 ```python
 """Rate determination, scenario generation, and regulatory usury enforcement."""
@@ -524,11 +524,11 @@ def generate_prime_rates(
     return [base_prime] * total_months
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_rates.py -v`
 Expected: PASS (4 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/core/rates.py tests/test_rates.py
 git commit -m "feat(core): implement rate resolution, scenarios, and usury limits"
@@ -546,7 +546,7 @@ git commit -m "feat(core): implement rate resolution, scenarios, and usury limit
 - Consumes: `HelocConfig`, `formulas`, `rates`
 - Produces: `simulate_heloc(config, prime_schedule)` returning `(TrajectorySummary, list[MonthlyRecord], pd.DataFrame)`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_simulator.py`:
 ```python
 import pytest
@@ -616,11 +616,11 @@ def test_prepayment_accelerated_payoff_and_savings():
     assert prep_summary.months_saved_vs_baseline > 0
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_simulator.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc.core.simulator'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/core/simulator.py`:
 ```python
 """Month-by-month trajectory simulation engine for HELOC amortization."""
@@ -755,11 +755,11 @@ def simulate_heloc(
     return summary, records, df
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_simulator.py -v`
 Expected: PASS (3 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/core/simulator.py tests/test_simulator.py
 git commit -m "feat(core): implement stateful simulation loop with prepayment comparisons"
@@ -778,7 +778,7 @@ git commit -m "feat(core): implement stateful simulation loop with prepayment co
 - Consumes: `HelocConfig`, `simulate_heloc`, `RateScenarioType`
 - Produces: `calculate_heloc_trajectory(...)` callable tool for Google Antigravity agents
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_tools.py`:
 ```python
 import os
@@ -812,11 +812,11 @@ def test_calculate_heloc_trajectory_csv_export(tmp_path):
     assert os.path.exists(csv_file)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_tools.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'heloc.tools'`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/tools/__init__.py`:
 ```python
 """Antigravity Agent Tools for HELOC financial modeling."""
@@ -958,11 +958,11 @@ def calculate_heloc_trajectory(
     }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_tools.py -v`
 Expected: PASS (2 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/tools/__init__.py heloc/tools/trajectory_tool.py tests/test_tools.py
 git commit -m "feat(tools): implement Antigravity agent tool for HELOC simulation"
@@ -982,7 +982,7 @@ git commit -m "feat(tools): implement Antigravity agent tool for HELOC simulatio
 - Consumes: `calculate_heloc_trajectory`
 - Produces: CLI interface executable via `python -m heloc`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 Create `tests/test_cli.py`:
 ```python
 import subprocess
@@ -1017,11 +1017,11 @@ def test_cli_run_execution():
     assert "Payment Shock" in result.stdout
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `python -m pytest tests/test_cli.py -v`
 Expected: FAIL with `No module named heloc.__main__`.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 Create `heloc/cli/__init__.py`:
 ```python
 """CLI package for HELOC calculator."""
@@ -1119,11 +1119,11 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `python -m pytest tests/test_cli.py -v`
 Expected: PASS (2 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add heloc/cli/__init__.py heloc/cli/main.py heloc/__main__.py tests/test_cli.py
 git commit -m "feat(cli): implement command-line interface and formatting"
@@ -1140,7 +1140,7 @@ git commit -m "feat(cli): implement command-line interface and formatting"
 - Consumes: Complete `heloc` package
 - Produces: Verified regulatory and economic scenario benchmarks
 
-- [ ] **Step 1: Write benchmark scenario test**
+- [x] **Step 1: Write benchmark scenario test**
 Create `tests/test_benchmark_scenarios.py`:
 ```python
 from heloc.tools.trajectory_tool import calculate_heloc_trajectory
@@ -1170,15 +1170,15 @@ def test_full_document_blueprint_scenario():
     assert summary["months_saved_vs_baseline"] > 24
 ```
 
-- [ ] **Step 2: Run all tests**
+- [x] **Step 2: Run all tests**
 Run: `python -m pytest -v`
 Expected: PASS (all tests across suite passing).
 
-- [ ] **Step 3: Run sample CLI simulation to verify end-to-end execution**
+- [x] **Step 3: Run sample CLI simulation to verify end-to-end execution**
 Run: `python -m heloc --balance 50000 --limit 100000 --prime 6.0 --margin 2.0 --intro-apr 0.99 --intro-months 12 --prepayment 300 --scenario rising`
 Expected: Exit code 0, complete formatted output tables.
 
-- [ ] **Step 4: Optional Local Swarm offload verification**
+- [x] **Step 4: Optional Local Swarm offload verification**
 Run local-swarm inspection/docstring verification if fine-tuning docstrings or adding extra unit tests:
 ```powershell
 & "$HOME\.gemini\config\skills\local-swarm\scripts\local-task.ps1" `
@@ -1187,7 +1187,7 @@ Run local-swarm inspection/docstring verification if fine-tuning docstrings or a
 ```
 Followed by `git diff` and running `python -m pytest` to verify on-device Gemma 4 26B edits pass cleanly.
 
-- [ ] **Step 5: Final Commit**
+- [x] **Step 5: Final Commit**
 ```bash
 git add tests/test_benchmark_scenarios.py
 git commit -m "test: add comprehensive benchmark scenario verification"
