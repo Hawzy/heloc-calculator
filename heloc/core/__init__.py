@@ -15,6 +15,11 @@ from heloc.core.models import (
     YearBasis,
 )
 
+from heloc.core.rates import (
+    generate_prime_rates,
+    get_effective_rate,
+)
+
 __all__ = [
     "BalanceMethod",
     "YearBasis",
@@ -26,4 +31,6 @@ __all__ = [
     "average_daily_balance",
     "monthly_finance_charge",
     "amortized_monthly_installment",
+    "get_effective_rate",
+    "generate_prime_rates",
 ]
