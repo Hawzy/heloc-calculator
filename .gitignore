@@ -10,3 +10,11 @@ dist/
 
 # Pytest & testing artifacts
 .pytest_cache/
+
+# Local virtual environments
+.venv/
+venv/
+
+# Local authoring notes & superpowers working state
+Python HELOC APR Calculator.md
+.superpowers/

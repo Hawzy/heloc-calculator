@@ -6,11 +6,17 @@ build-backend = "setuptools.build_meta"
 name = "heloc-calculator"
 version = "0.1.0"
 description = "HELOC simulation engine"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
     "pandas>=1.5",
 ]
+
+[project.urls]
+Homepage = "https://hawzy.github.io/heloc-calculator/"
+Repository = "https://github.com/Hawzy/heloc-calculator"
 
 [project.optional-dependencies]
 dev = [
