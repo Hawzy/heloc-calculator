@@ -17,6 +17,10 @@ import {
   savePreset,
 } from "../js/ui/presets.js";
 import { CSV_COLUMNS, recordsToCsv } from "../js/ui/csv.js";
+import { initThemeToggle } from "../js/ui/theme.js";
+import { createAnnouncer, initFormValidation } from "../js/ui/a11y.js";
+import { renderCharts } from "../js/ui/charts.js";
+import { renderScheduleTable } from "../js/ui/table.js";
 
 test("URL query round-trip preserves all presets including custom rates and disabled intro", () => {
   for (const preset of BUILTIN_PRESETS) {
@@ -152,4 +156,12 @@ test("recordsToCsv outputs exact 12-column header and formatted rows", () => {
   assert.equal(lines.length, 1 + result.records.length);
   assert.equal(lines[1].split(",").length, 12);
   assert.ok(lines[1].startsWith("1,1,draw,10000.00,0.9900,7.0000,"));
+});
+
+test("UI module exports load cleanly as ES modules", () => {
+  assert.equal(typeof initThemeToggle, "function");
+  assert.equal(typeof createAnnouncer, "function");
+  assert.equal(typeof initFormValidation, "function");
+  assert.equal(typeof renderCharts, "function");
+  assert.equal(typeof renderScheduleTable, "function");
 });
