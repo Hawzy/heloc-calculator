@@ -1457,6 +1457,10 @@
 }
 
 @layer utilities {
+  [hidden]:not([hidden="until-found"]) {
+    display: none !important;
+  }
+
   .tabular-nums {
     font-variant-numeric: tabular-nums;
   }

@@ -155,7 +155,7 @@ function createInteractiveChart({
   const readoutEl = htmlEl("div", "chart-readout");
   readoutEl.setAttribute("aria-live", "off");
 
-  const pad = { top: 26, right: 20, bottom: 34, left: 62 };
+  const pad = { top: 32, right: 20, bottom: 34, left: 62 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   const yBase = pad.top + plotH;
@@ -323,18 +323,17 @@ function createInteractiveChart({
       month: introMonth,
       label: `Intro Ends (Mo ${introMonth})`,
       className: "chart-marker--intro",
-      yLabelOffset: pad.top + 14,
+      yLabelOffset: pad.top - 7,
     });
   }
   if (repayMonth !== null && repayMonth > 1 && repayMonth <= maxMonth) {
+    const closeToIntro =
+      introMonth !== null && Math.abs(xForMonth(repayMonth) - xForMonth(introMonth)) < 125;
     markerSpecs.push({
       month: repayMonth,
       label: `Repay Starts (Mo ${repayMonth})`,
       className: "chart-marker--repay",
-      yLabelOffset:
-        introMonth !== null && Math.abs(repayMonth - introMonth) < Math.max(24, maxMonth * 0.16)
-          ? pad.top + 30
-          : pad.top + 14,
+      yLabelOffset: closeToIntro ? pad.top - 19 : pad.top - 7,
     });
   }
 
