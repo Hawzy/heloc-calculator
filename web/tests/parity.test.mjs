@@ -7,17 +7,21 @@ import { fileURLToPath } from "node:url";
 import {
   BalanceMethod,
   ConfigValidationError,
+  DrawPaymentMode,
   RateScenarioType,
   YearBasis,
   amortizedMonthlyInstallment,
   averageDailyBalance,
   calculateHelocTrajectory,
+  compareFixedHomeEquityLoan,
   dailyPeriodicRate,
+  estimateBorrowingPower,
   generatePrimeRates,
   getEffectiveRate,
   monthlyFinanceCharge,
   pyRound,
   simulateHeloc,
+  solveMonthlyPrepayment,
   validateConfig,
 } from "../js/engine/index.js";
 
@@ -98,8 +102,8 @@ test("HelocConfig validation rejects invalid inputs", () => {
   }
 });
 
-test("all 12 golden Python scenarios match within cent parity", () => {
-  assert.equal(fixtures.scenarios.length, 12);
+test("all 17 golden Python scenarios match within cent parity", () => {
+  assert.equal(fixtures.scenarios.length, 17);
 
   let maxCurrencyDelta = 0;
   let maxRateDelta = 0;
@@ -114,11 +118,17 @@ test("all 12 golden Python scenarios match within cent parity", () => {
     "first_repayment_payment",
     "payment_shock_amount",
     "interest_savings_vs_baseline",
+    "total_additional_draws",
+    "total_lump_sum_payments",
+    "peak_balance",
+    "total_fees",
+    "total_cost_with_fees",
   ];
   const summaryIntFields = [
     "total_months_scheduled",
     "actual_months_to_payoff",
     "months_saved_vs_baseline",
+    "early_closure_fee_triggered",
   ];
   const recordCurrencyFields = [
     "starting_balance",
@@ -184,6 +194,10 @@ test("all 12 golden Python scenarios match within cent parity", () => {
         assert.ok(Math.abs(am.payment_shock_pct - em.payment_shock_pct) <= CURRENCY_TOLERANCE);
         assert.ok(Math.abs(am.payment_shock_amount - em.payment_shock_amount) <= CURRENCY_TOLERANCE);
       }
+      if (em.amount !== undefined) {
+        assert.ok(Math.abs(am.amount - em.amount) <= CURRENCY_TOLERANCE);
+        assert.equal(am.label, em.label);
+      }
     }
 
     assert.equal(
@@ -232,8 +246,75 @@ test("all 12 golden Python scenarios match within cent parity", () => {
   }
 
   console.log(
-    `[parity] 12 scenarios verified — maxCurrencyDelta=$${maxCurrencyDelta.toFixed(4)}, maxRateDelta=${maxRateDelta.toFixed(6)}%`,
+    `[parity] ${fixtures.scenarios.length} scenarios verified — maxCurrencyDelta=$${maxCurrencyDelta.toFixed(4)}, maxRateDelta=${maxRateDelta.toFixed(6)}%`,
   );
+});
+
+test("v2 analytics vectors (CLTV, Goal Solver, Fixed HELoan) match Python parity", () => {
+  const { cltv, goal_solver: goalSolver, heloan } = fixtures.analytics_vectors;
+
+  for (const vec of cltv) {
+    const { home_value, first_mortgage_balance, max_cltv_pct, planned_credit_limit, planned_initial_draw } =
+      vec.inputs;
+    const actual = estimateBorrowingPower(
+      home_value,
+      first_mortgage_balance,
+      max_cltv_pct,
+      planned_credit_limit,
+      planned_initial_draw,
+    );
+    assert.deepEqual(actual, vec.expected, `CLTV mismatch in ${vec.name}`);
+  }
+
+  for (const vec of goalSolver) {
+    const p = vec.params;
+    const drawMode = vec.name === "already_met_at_zero" ? DrawPaymentMode.FIXED_FLOOR : p.draw_payment_mode;
+    const drawFloor = vec.name === "already_met_at_zero" ? 500.0 : p.draw_min_payment_floor;
+    const cfg = validateConfig({
+      ...p,
+      draw_payment_mode: drawMode ?? DrawPaymentMode.INTEREST_ONLY,
+      draw_min_payment_floor: drawFloor ?? 0.0,
+    });
+    const totalMonths = cfg.draw_period_months + cfg.repayment_period_months;
+    const prime = generatePrimeRates({
+      totalMonths,
+      scenario: p.rate_scenario,
+      basePrime: p.prime_rate,
+      annualStep: p.annual_rate_step,
+      customRates: p.custom_rates,
+    });
+    const actual = solveMonthlyPrepayment(cfg, vec.target_months, prime);
+    assert.equal(actual.achievable, vec.expected.achievable, `${vec.name}.achievable`);
+    assert.equal(actual.already_met, vec.expected.already_met, `${vec.name}.already_met`);
+    if (actual.achievable) {
+      assert.ok(
+        Math.abs(actual.required_monthly_prepayment - vec.expected.required_monthly_prepayment) <=
+          CURRENCY_TOLERANCE,
+        `${vec.name}.required_monthly_prepayment: JS=${actual.required_monthly_prepayment} vs PY=${vec.expected.required_monthly_prepayment}`,
+      );
+      assert.equal(actual.actual_months_to_payoff, vec.expected.actual_months_to_payoff);
+      assert.ok(
+        Math.abs(actual.total_interest_paid - vec.expected.total_interest_paid) <= CURRENCY_TOLERANCE,
+      );
+      assert.ok(
+        Math.abs(actual.payment_shock_amount - vec.expected.payment_shock_amount) <= CURRENCY_TOLERANCE,
+      );
+    } else {
+      assert.equal(actual.required_monthly_prepayment, null);
+    }
+  }
+
+  for (const vec of heloan) {
+    const { principal, fixed_apr, term_months, fixed_closing_costs } = vec.inputs;
+    const actual = compareFixedHomeEquityLoan(
+      principal,
+      fixed_apr,
+      term_months,
+      vec.heloc_summary,
+      fixed_closing_costs,
+    );
+    assert.deepEqual(actual, vec.expected, `HELoan mismatch in ${vec.name}`);
+  }
 });
 
 test("edge-case behaviors match Python specs", () => {

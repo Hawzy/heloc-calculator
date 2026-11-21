@@ -103,8 +103,16 @@ export function initFormValidation(formEl, announcer) {
     return false;
   };
 
+  const isMainControl = (el) =>
+    Boolean(
+      el &&
+        el.matches?.("input, select, textarea") &&
+        el.dataset?.helperControl !== "true" &&
+        !el.closest("[data-helper-section]"),
+    );
+
   const syncAria = (el, shouldAnnounce = false) => {
-    if (!el || !el.matches?.("input, select, textarea")) return;
+    if (!isMainControl(el)) return;
     const invalid = isFieldShowingError(el);
     if (invalid) {
       if (shouldAnnounce && !announced.has(el)) {
@@ -125,9 +133,11 @@ export function initFormValidation(formEl, announcer) {
     }
   };
 
-  // Initialize all fields at aria-invalid="false"
+  // Initialize all main form fields at aria-invalid="false"
   formEl.querySelectorAll("input, select, textarea").forEach((el) => {
-    el.setAttribute("aria-invalid", "false");
+    if (isMainControl(el)) {
+      el.setAttribute("aria-invalid", "false");
+    }
   });
 
   const setCustomFieldError = (el, message, { forceShow = false, announce = false } = {}) => {
@@ -170,7 +180,7 @@ export function initFormValidation(formEl, announcer) {
     "blur",
     (e) => {
       const el = e.target;
-      if (!el.matches?.("input, select, textarea")) return;
+      if (!isMainControl(el)) return;
       const state = dirtyState.get(el) || { hasInteracted: false, hasBlurred: false };
       state.hasBlurred = true;
       dirtyState.set(el, state);
@@ -184,7 +194,7 @@ export function initFormValidation(formEl, announcer) {
 
   formEl.addEventListener("input", (e) => {
     const el = e.target;
-    if (!el.matches?.("input, select, textarea")) return;
+    if (!isMainControl(el)) return;
     const state = dirtyState.get(el) || { hasInteracted: false, hasBlurred: false };
     state.hasInteracted = true;
     dirtyState.set(el, state);
@@ -200,7 +210,7 @@ export function initFormValidation(formEl, announcer) {
     "change",
     (e) => {
       const el = e.target;
-      if (!el.matches?.("input, select, textarea")) return;
+      if (!isMainControl(el)) return;
       const state = dirtyState.get(el) || { hasInteracted: false, hasBlurred: false };
       state.hasInteracted = true;
       dirtyState.set(el, state);
@@ -216,7 +226,7 @@ export function initFormValidation(formEl, announcer) {
     "invalid",
     (e) => {
       const el = e.target;
-      if (!el.matches?.("input, select, textarea")) return;
+      if (!isMainControl(el)) return;
       announced.add(el);
       if (!supportsUserInvalid) {
         el.classList.add("user-invalid-fallback");
@@ -231,6 +241,7 @@ export function initFormValidation(formEl, announcer) {
     () => {
       setTimeout(() => {
         formEl.querySelectorAll("input, select, textarea").forEach((el) => {
+          if (!isMainControl(el)) return;
           dirtyState.delete(el);
           if (typeof el.setCustomValidity === "function") el.setCustomValidity("");
           el.classList.remove("user-invalid-fallback");
@@ -244,8 +255,92 @@ export function initFormValidation(formEl, announcer) {
   return {
     setCustomFieldError,
     clearFieldError,
+    isMainControl,
     syncAll(announce = false) {
-      formEl.querySelectorAll("input, select, textarea").forEach((el) => syncAria(el, announce));
+      formEl.querySelectorAll("input, select, textarea").forEach((el) => {
+        if (isMainControl(el)) syncAria(el, announce);
+      });
     },
   };
+}
+
+/**
+ * Wire accessible `aria-expanded` synchronization and lightweight fallback for
+ * `popover="auto"` toggletips triggered via `popovertarget`.
+ *
+ * Uses capturing `toggle` listener because `toggle` does not bubble.
+ *
+ * @param {Document | HTMLElement} [root=document]
+ */
+export function initPopovers(root = document) {
+  const triggers = Array.from(root.querySelectorAll("button[popovertarget]"));
+  if (triggers.length === 0) return;
+
+  const nativeSupported =
+    typeof HTMLElement !== "undefined" && Object.hasOwn(HTMLElement.prototype, "popover");
+
+  for (const btn of triggers) {
+    const targetId = btn.getAttribute("popovertarget");
+    const target = targetId ? document.getElementById(targetId) : null;
+    if (!target) continue;
+    if (!btn.hasAttribute("aria-expanded")) {
+      const isOpen = nativeSupported
+        ? target.matches(":popover-open")
+        : target.classList.contains(":popover-open");
+      btn.setAttribute("aria-expanded", String(isOpen));
+    }
+  }
+
+  if (nativeSupported) {
+    document.addEventListener(
+      "toggle",
+      (e) => {
+        const pop = e.target;
+        if (!pop?.id) return;
+        const expanded = e.newState === "open";
+        document
+          .querySelectorAll(`button[popovertarget="${CSS.escape(pop.id)}"]`)
+          .forEach((btn) => {
+            btn.setAttribute("aria-expanded", String(expanded));
+          });
+      },
+      true,
+    );
+    return;
+  }
+
+  // Zero-CDN fallback for older browsers lacking native Popover API
+  const closeAllFallback = (exceptId = null) => {
+    for (const btn of triggers) {
+      const tid = btn.getAttribute("popovertarget");
+      if (!tid || tid === exceptId) continue;
+      const el = document.getElementById(tid);
+      if (el?.classList.contains(":popover-open")) {
+        el.classList.remove(":popover-open");
+        btn.setAttribute("aria-expanded", "false");
+      }
+    }
+  };
+
+  for (const btn of triggers) {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const targetId = btn.getAttribute("popovertarget");
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (!target) return;
+      const willOpen = !target.classList.contains(":popover-open");
+      closeAllFallback(willOpen ? targetId : null);
+      target.classList.toggle(":popover-open", willOpen);
+      btn.setAttribute("aria-expanded", String(willOpen));
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    const clickedOpenPop = e.target?.closest?.('[popover].\\:popover-open');
+    if (!clickedOpenPop) closeAllFallback();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAllFallback();
+  });
 }

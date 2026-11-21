@@ -20,6 +20,12 @@ export const RateScenarioType = Object.freeze({
   CUSTOM: "custom",
 });
 
+export const DrawPaymentMode = Object.freeze({
+  INTEREST_ONLY: "interest_only",
+  PCT_OF_BALANCE: "pct_of_balance",
+  FIXED_FLOOR: "fixed_floor",
+});
+
 export const DEFAULT_CONFIG = Object.freeze({
   margin: 2.0,
   intro_apr: null,
@@ -31,6 +37,14 @@ export const DEFAULT_CONFIG = Object.freeze({
   monthly_prepayment: 0.0,
   balance_method: BalanceMethod.AVERAGE_DAILY_BALANCE,
   year_basis: YearBasis.DAYS_365,
+  draw_payment_mode: DrawPaymentMode.INTEREST_ONLY,
+  draw_min_payment_pct: 1.0,
+  draw_min_payment_floor: 0.0,
+  cash_flow_events: [],
+  closing_costs: 0.0,
+  annual_fee: 0.0,
+  early_closure_fee: 0.0,
+  early_closure_months: 36,
 });
 
 export class ConfigValidationError extends Error {
@@ -46,6 +60,7 @@ export class ConfigValidationError extends Error {
 }
 
 const VALID_BALANCE_METHODS = new Set(Object.values(BalanceMethod));
+const VALID_DRAW_MODES = new Set(Object.values(DrawPaymentMode));
 
 /**
  * Validate and normalize a raw HELOC configuration object.
@@ -169,6 +184,129 @@ export function validateConfig(raw) {
     });
   }
 
+  const drawPaymentMode = String(merged.draw_payment_mode ?? DrawPaymentMode.INTEREST_ONLY);
+  if (!VALID_DRAW_MODES.has(drawPaymentMode)) {
+    errors.push({
+      field: "draw_payment_mode",
+      message: "Invalid draw minimum payment mode.",
+    });
+  }
+
+  const drawMinPct = Number(merged.draw_min_payment_pct ?? 1.0);
+  if (!Number.isFinite(drawMinPct) || drawMinPct < 0 || drawMinPct > 100) {
+    errors.push({
+      field: "draw_min_payment_pct",
+      message: "Minimum draw % must be between 0% and 100%.",
+    });
+  }
+
+  const drawMinFloor = Number(merged.draw_min_payment_floor ?? 0.0);
+  if (!Number.isFinite(drawMinFloor) || drawMinFloor < 0) {
+    errors.push({
+      field: "draw_min_payment_floor",
+      message: "Minimum draw payment floor must be $0 or higher.",
+    });
+  }
+
+  const closingCosts = Number(merged.closing_costs ?? 0.0);
+  if (!Number.isFinite(closingCosts) || closingCosts < 0) {
+    errors.push({
+      field: "closing_costs",
+      message: "Closing costs must be $0 or higher.",
+    });
+  }
+
+  const annualFee = Number(merged.annual_fee ?? 0.0);
+  if (!Number.isFinite(annualFee) || annualFee < 0) {
+    errors.push({
+      field: "annual_fee",
+      message: "Annual fee must be $0 or higher.",
+    });
+  }
+
+  const earlyClosureFee = Number(merged.early_closure_fee ?? 0.0);
+  if (!Number.isFinite(earlyClosureFee) || earlyClosureFee < 0) {
+    errors.push({
+      field: "early_closure_fee",
+      message: "Early closure fee must be $0 or higher.",
+    });
+  }
+
+  const earlyClosureMonths = Number(merged.early_closure_months ?? 36);
+  if (!Number.isInteger(earlyClosureMonths) || earlyClosureMonths < 0) {
+    errors.push({
+      field: "early_closure_months",
+      message: "Early closure window must be a whole number of months (0 or more).",
+    });
+  }
+
+  const normalizedEvents = [];
+  const rawEvents = merged.cash_flow_events ?? [];
+  if (!Array.isArray(rawEvents)) {
+    errors.push({
+      field: "cash_flow_events",
+      message: "Scheduled cash-flow events must be a list.",
+    });
+  } else {
+    const totalMonths =
+      Number.isInteger(drawPeriod) && Number.isInteger(repayPeriod) ? drawPeriod + repayPeriod : 0;
+    for (let i = 0; i < rawEvents.length; i += 1) {
+      const ev = rawEvents[i];
+      if (!ev || typeof ev !== "object") {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Cash-flow event #${i + 1} is invalid.`,
+        });
+        continue;
+      }
+      const evMonth = Number(ev.month);
+      const evAmount = Number(ev.amount);
+      const evType = String(ev.event_type);
+      const evLabel = String(ev.label ?? "").slice(0, 60);
+      if (!Number.isInteger(evMonth) || evMonth < 1) {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Event month must be at least 1.`,
+        });
+        continue;
+      }
+      if (totalMonths > 0 && evMonth > totalMonths) {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Event month ${evMonth} exceeds total term (${totalMonths} months).`,
+        });
+        continue;
+      }
+      if (!Number.isFinite(evAmount) || evAmount <= 0) {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Event amount must be greater than $0.`,
+        });
+        continue;
+      }
+      if (evType !== "draw" && evType !== "lump_sum") {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Event type "${evType}" must be "draw" or "lump_sum".`,
+        });
+        continue;
+      }
+      if (evType === "draw" && Number.isInteger(drawPeriod) && evMonth > drawPeriod) {
+        errors.push({
+          field: "cash_flow_events",
+          message: `Scheduled draw in month ${evMonth} cannot occur after draw period (${drawPeriod} months).`,
+        });
+        continue;
+      }
+      normalizedEvents.push({
+        month: evMonth,
+        amount: evAmount,
+        event_type: evType,
+        label: evLabel,
+      });
+    }
+  }
+
   if (errors.length > 0) {
     throw new ConfigValidationError(errors);
   }
@@ -186,5 +324,13 @@ export function validateConfig(raw) {
     monthly_prepayment: monthlyPrepayment,
     balance_method: balanceMethod,
     year_basis: yearBasis,
+    draw_payment_mode: drawPaymentMode,
+    draw_min_payment_pct: drawMinPct,
+    draw_min_payment_floor: drawMinFloor,
+    cash_flow_events: normalizedEvents,
+    closing_costs: closingCosts,
+    annual_fee: annualFee,
+    early_closure_fee: earlyClosureFee,
+    early_closure_months: earlyClosureMonths,
   };
 }

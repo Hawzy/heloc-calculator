@@ -4,10 +4,12 @@
 
 import {
   BalanceMethod,
+  DrawPaymentMode,
   RateScenarioType,
   YearBasis,
   validateConfig,
 } from "../engine/index.js";
+import { formatIsoYearMonth, parseYearMonth } from "./dates.js";
 
 export const DEFAULT_SCENARIO = Object.freeze({
   initial_principal: 50000,
@@ -27,6 +29,19 @@ export const DEFAULT_SCENARIO = Object.freeze({
   annual_rate_step: 0.5,
   custom_rates: null,
   custom_rates_mode: "annual",
+  draw_payment_mode: DrawPaymentMode.INTEREST_ONLY,
+  draw_min_payment_pct: 1.0,
+  draw_min_payment_floor: 0,
+  cash_flow_events: [],
+  closing_costs: 0,
+  annual_fee: 0,
+  early_closure_fee: 0,
+  early_closure_months: 36,
+  start_year_month: null,
+  heloan_enabled: false,
+  heloan_apr: 7.5,
+  heloan_term_years: 15,
+  heloan_closing_costs: 0,
 });
 
 export const BUILTIN_PRESETS = Object.freeze([
@@ -100,10 +115,33 @@ export const BUILTIN_PRESETS = Object.freeze([
       monthly_prepayment: 2000,
     },
   },
+  {
+    id: "staged_reno",
+    label: "Staged Reno + Bonus",
+    description: "$30k initial draw, +$15k Kitchen Reno (Mo 14), -$8k Bonus (Mo 24), +$200/mo prepay",
+    params: {
+      ...DEFAULT_SCENARIO,
+      initial_principal: 30000,
+      credit_limit: 100000,
+      prime_rate: 6.5,
+      margin: 2.0,
+      intro_apr: null,
+      draw_period_months: 60,
+      repayment_period_months: 120,
+      rate_scenario: RateScenarioType.RISING,
+      annual_rate_step: 0.5,
+      monthly_prepayment: 200,
+      cash_flow_events: [
+        { month: 14, amount: 15000, event_type: "draw", label: "Kitchen Reno" },
+        { month: 24, amount: 8000, event_type: "lump_sum", label: "Annual Bonus" },
+      ],
+    },
+  },
 ]);
 
 const VALID_BALANCE_METHODS = new Set(Object.values(BalanceMethod));
 const VALID_SCENARIOS = new Set(Object.values(RateScenarioType));
+const VALID_DRAW_MODES = new Set(Object.values(DrawPaymentMode));
 const STRICT_NUMBER_RE = /^[+-]?(?:\d+\.?\d*|\.\d+)$/;
 
 /**
@@ -145,6 +183,16 @@ export function expandCustomRates(rawText, mode = "annual") {
   return { rates: parsed, error: null };
 }
 
+function serializeEventsParam(events) {
+  if (!Array.isArray(events) || events.length === 0) return "";
+  return events
+    .map((ev) => {
+      const cleanLabel = String(ev.label ?? "").replace(/\|/g, " ").trim().slice(0, 60);
+      return `${ev.event_type}:${ev.month}:${ev.amount}:${cleanLabel}`;
+    })
+    .join("|");
+}
+
 /**
  * Serialize a HELOC parameter state into a clean URL query string.
  *
@@ -177,6 +225,53 @@ export function serializeToQueryString(params) {
   if (params.custom_rates_mode) {
     q.set("customMode", String(params.custom_rates_mode));
   }
+
+  // Optional v2 fields (emitted only when non-default to keep v1 links concise)
+  if (params.draw_payment_mode && params.draw_payment_mode !== DEFAULT_SCENARIO.draw_payment_mode) {
+    q.set("drawMode", String(params.draw_payment_mode));
+  }
+  if (
+    params.draw_min_payment_pct !== undefined &&
+    params.draw_min_payment_pct !== DEFAULT_SCENARIO.draw_min_payment_pct
+  ) {
+    q.set("drawPct", String(params.draw_min_payment_pct));
+  }
+  if (
+    params.draw_min_payment_floor !== undefined &&
+    params.draw_min_payment_floor !== DEFAULT_SCENARIO.draw_min_payment_floor
+  ) {
+    q.set("drawFloor", String(params.draw_min_payment_floor));
+  }
+  const serializedEvents = serializeEventsParam(params.cash_flow_events);
+  if (serializedEvents) {
+    q.set("events", serializedEvents);
+  }
+  if (params.start_year_month) {
+    q.set("start", String(params.start_year_month));
+  }
+  if (params.closing_costs) {
+    q.set("closingFee", String(params.closing_costs));
+  }
+  if (params.annual_fee) {
+    q.set("annualFee", String(params.annual_fee));
+  }
+  if (params.early_closure_fee) {
+    q.set("closureFee", String(params.early_closure_fee));
+  }
+  if (
+    params.early_closure_months !== undefined &&
+    params.early_closure_months !== DEFAULT_SCENARIO.early_closure_months
+  ) {
+    q.set("closureMos", String(params.early_closure_months));
+  }
+  if (params.heloan_enabled) {
+    q.set("heloanOn", "1");
+    q.set("heloanApr", String(params.heloan_apr ?? DEFAULT_SCENARIO.heloan_apr));
+    q.set("heloanYrs", String(params.heloan_term_years ?? DEFAULT_SCENARIO.heloan_term_years));
+    if (params.heloan_closing_costs) {
+      q.set("heloanFees", String(params.heloan_closing_costs));
+    }
+  }
   return q.toString();
 }
 
@@ -196,7 +291,12 @@ function parseStrictNum(raw) {
  * @returns {{ params: Record<string, unknown>, warnings: string[] }}
  */
 export function parseQueryString(search, fallback = DEFAULT_SCENARIO) {
-  const params = { ...fallback };
+  const params = {
+    ...fallback,
+    cash_flow_events: Array.isArray(fallback.cash_flow_events)
+      ? fallback.cash_flow_events.map((ev) => ({ ...ev }))
+      : [],
+  };
   const warnings = [];
   const q = new URLSearchParams(search ?? "");
 
@@ -232,6 +332,17 @@ export function parseQueryString(search, fallback = DEFAULT_SCENARIO) {
   readFloat("usury", "regulatory_ceiling", { min: 0, minExclusive: true, max: 100 });
   readFloat("prepay", "monthly_prepayment", { min: 0, max: 1e8 });
   readFloat("step", "annual_rate_step", { min: -25, max: 25 });
+
+  // Optional v2 numeric / enum parameters
+  readFloat("drawPct", "draw_min_payment_pct", { min: 0, max: 100 });
+  readFloat("drawFloor", "draw_min_payment_floor", { min: 0, max: 1e8 });
+  readFloat("closingFee", "closing_costs", { min: 0, max: 1e7 });
+  readFloat("annualFee", "annual_fee", { min: 0, max: 1e6 });
+  readFloat("closureFee", "early_closure_fee", { min: 0, max: 1e7 });
+  readInt("closureMos", "early_closure_months", { min: 0, max: 600 });
+  readFloat("heloanApr", "heloan_apr", { min: 0, max: 100 });
+  readInt("heloanYrs", "heloan_term_years", { min: 1, max: 40 });
+  readFloat("heloanFees", "heloan_closing_costs", { min: 0, max: 1e7 });
 
   if (q.has("introApr")) {
     const rawIntro = q.get("introApr").trim();
@@ -274,6 +385,34 @@ export function parseQueryString(search, fallback = DEFAULT_SCENARIO) {
     }
   }
 
+  if (q.has("drawMode")) {
+    const dm = q.get("drawMode").trim().toLowerCase();
+    if (VALID_DRAW_MODES.has(dm)) {
+      params.draw_payment_mode = dm;
+    } else {
+      warnings.push('Ignored invalid URL parameter "drawMode".');
+    }
+  }
+
+  if (q.has("start")) {
+    const rawStart = q.get("start").trim();
+    if (rawStart === "" || rawStart === "none" || rawStart === "null") {
+      params.start_year_month = null;
+    } else {
+      const ym = parseYearMonth(rawStart);
+      if (!ym) {
+        warnings.push('Ignored invalid URL parameter "start".');
+      } else {
+        params.start_year_month = formatIsoYearMonth(ym);
+      }
+    }
+  }
+
+  if (q.has("heloanOn")) {
+    const rawOn = q.get("heloanOn").trim().toLowerCase();
+    params.heloan_enabled = rawOn === "1" || rawOn === "true";
+  }
+
   if (q.has("customMode")) {
     const mode = q.get("customMode").trim().toLowerCase();
     if (mode === "annual" || mode === "monthly") {
@@ -298,6 +437,41 @@ export function parseQueryString(search, fallback = DEFAULT_SCENARIO) {
     }
   }
 
+  if (q.has("events")) {
+    const rawEvents = q.get("events").trim();
+    if (rawEvents === "") {
+      params.cash_flow_events = [];
+    } else {
+      const totalMonths = params.draw_period_months + params.repayment_period_months;
+      const parsedEvents = [];
+      for (const chunk of rawEvents.split("|")) {
+        if (!chunk) continue;
+        const [rawType, rawMonth, rawAmount, ...labelParts] = chunk.split(":");
+        const evType = (rawType ?? "").trim().toLowerCase();
+        const evMonth = parseStrictNum(rawMonth);
+        const evAmount = parseStrictNum(rawAmount);
+        const validType = evType === "draw" || evType === "lump_sum";
+        const validMonth =
+          Number.isInteger(evMonth) &&
+          evMonth >= 1 &&
+          evMonth <= totalMonths &&
+          (evType !== "draw" || evMonth <= params.draw_period_months);
+        const validAmount = Number.isFinite(evAmount) && evAmount > 0 && evAmount <= 1e9;
+        if (!validType || !validMonth || !validAmount) {
+          warnings.push("Ignored invalid URL scheduled cash-flow event.");
+          continue;
+        }
+        parsedEvents.push({
+          month: evMonth,
+          amount: evAmount,
+          event_type: evType,
+          label: labelParts.join(":").trim().slice(0, 60),
+        });
+      }
+      params.cash_flow_events = parsedEvents;
+    }
+  }
+
   if (params.initial_principal > params.credit_limit) {
     warnings.push("Clamped initial principal to match credit limit.");
     params.initial_principal = params.credit_limit;
@@ -307,7 +481,15 @@ export function parseQueryString(search, fallback = DEFAULT_SCENARIO) {
     validateConfig(params);
   } catch {
     warnings.push("Reset parameters to safe defaults after validation check.");
-    return { params: { ...fallback }, warnings };
+    return {
+      params: {
+        ...fallback,
+        cash_flow_events: Array.isArray(fallback.cash_flow_events)
+          ? fallback.cash_flow_events.map((ev) => ({ ...ev }))
+          : [],
+      },
+      warnings,
+    };
   }
 
   return { params, warnings };

@@ -84,6 +84,9 @@ export function savePreset(storage, rawName, params) {
       ...DEFAULT_SCENARIO,
       ...params,
       custom_rates: Array.isArray(params?.custom_rates) ? [...params.custom_rates] : null,
+      cash_flow_events: Array.isArray(params?.cash_flow_events)
+        ? params.cash_flow_events.map((ev) => ({ ...ev }))
+        : [],
     },
   };
 

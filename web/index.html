@@ -12,7 +12,7 @@
     } catch {}
   </script>
   <title>HELOC Trajectory &amp; Payment Shock Calculator</title>
-  <meta name="description" content="100% client-side Home Equity Line of Credit (HELOC) APR, payment shock, and amortization simulator with Regulation Z &amp; Washington CLA usury cap modeling.">
+  <meta name="description" content="100% client-side Home Equity Line of Credit (HELOC) APR, payment shock, CLTV, goal solver, staged draws, and amortization simulator with Regulation Z &amp; Washington CLA usury cap modeling.">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230f6d50'/%3E%3Cpath d='M6 23 L13 16 L18 19 L26 9' fill='none' stroke='%23ffffff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./js/app.js"></script>
@@ -48,6 +48,13 @@
             <path fill="currentColor" d="M6.35 10.65a2.5 2.5 0 0 1 0-3.54l2.12-2.12a2.5 2.5 0 0 1 3.54 3.54l-.71.71-1.06-1.06.71-.71a1 1 0 1 0-1.42-1.42L7.41 8.17a1 1 0 0 0 1.42 1.42l.35-.35 1.06 1.06-.35.35a2.5 2.5 0 0 1-3.54 0zm3.3-5.3a2.5 2.5 0 0 1 0 3.54L7.53 11a2.5 2.5 0 0 1-3.54-3.54l.71-.71 1.06 1.06-.71.71a1 1 0 1 0 1.42 1.42l2.12-2.12a1 1 0 0 0-1.42-1.42l-.35.35-1.06-1.06.35-.35a2.5 2.5 0 0 1 3.54 0z"></path>
           </svg>
           <span id="share-btn-label">Copy Share Link</span>
+        </button>
+
+        <button type="button" id="print-btn" class="btn btn-secondary">
+          <svg aria-hidden="true" viewBox="0 0 16 16" width="15" height="15">
+            <path fill="currentColor" d="M4 1.5h8v3h1.5A1.5 1.5 0 0 1 15 6v4.5a1 1 0 0 1-1 1H12v3H4v-3H2a1 1 0 0 1-1-1V6a1.5 1.5 0 0 1 1.5-1.5H4v-3zm1.5 1.5v1.5h5V3h-5zm0 6.5v3.5h5V9.5h-5z"></path>
+          </svg>
+          Print / PDF
         </button>
 
         <button type="button" id="theme-toggle" class="btn btn-secondary" aria-pressed="false" aria-label="Switch theme">
@@ -133,6 +140,17 @@
               <span role="img" aria-label="Error">!</span>
               <span data-error-text>Enter a balance greater than $0 and no higher than the credit limit.</span>
             </p>
+            <label for="principal-range" class="visually-hidden">Initial drawn balance quick slider</label>
+            <input
+              type="range"
+              id="principal-range"
+              min="1000"
+              max="100000"
+              step="500"
+              value="50000"
+              class="range-slider"
+              data-helper-control="true"
+            >
           </div>
 
           <div class="field">
@@ -166,7 +184,7 @@
           <div class="field-split">
             <div class="field">
               <label for="draw-duration">Draw Period</label>
-              <span id="hint-draw" class="field-hint">Interest-only revolving phase (&ge; 1)</span>
+              <span id="hint-draw" class="field-hint">Revolving draw phase (&ge; 1)</span>
               <div class="unit-input">
                 <input
                   type="number"
@@ -248,6 +266,7 @@
               step="25"
               value="300"
               class="range-slider"
+              data-helper-control="true"
             >
           </div>
         </fieldset>
@@ -275,10 +294,32 @@
                 <span role="img" aria-label="Error">!</span>
                 <span data-error-text>Enter a Prime rate between 0% and 100%.</span>
               </p>
+              <label for="prime-range" class="visually-hidden">Starting Prime quick slider</label>
+              <input
+                type="range"
+                id="prime-range"
+                min="0"
+                max="20"
+                step="0.25"
+                value="6.0"
+                class="range-slider"
+                data-helper-control="true"
+              >
             </div>
 
             <div class="field">
-              <label for="margin-rate">Lender Margin (%)</label>
+              <div class="label-row">
+                <label for="margin-rate">Lender Margin (%)</label>
+                <button
+                  type="button"
+                  class="info-tip-btn"
+                  popovertarget="tip-margin"
+                  aria-label="About Lender Margin"
+                >?</button>
+                <div id="tip-margin" popover="auto" class="info-popover" role="tooltip">
+                  <strong>Lender Margin</strong> is the fixed percentage spread added to the variable Prime Index after any teaser expires. Total rate = Prime + Margin, capped by your Lifetime &amp; Usury ceilings.
+                </div>
+              </div>
               <span id="hint-margin" class="field-hint">Fixed spread over Prime (&ge; 0%)</span>
               <input
                 type="number"
@@ -374,8 +415,357 @@
           </div>
         </fieldset>
 
-        <details open class="advanced-terms">
-          <summary>Introductory Teaser, Caps &amp; Day-Count Conventions</summary>
+        <!-- Drawer 1: Home Equity & CLTV Estimator -->
+        <details id="drawer-cltv" class="advanced-terms" data-helper-section="true">
+          <summary>
+            <span>Home Equity &amp; CLTV Estimator <span id="badge-cltv" class="drawer-badge">80% CLTV</span></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="home-value">Estimated Home Value ($)</label>
+              <input type="number" id="home-value" inputmode="decimal" min="1" step="any" value="600000" data-helper-control="true">
+            </div>
+            <div class="field-split">
+              <div class="field">
+                <label for="first-mortgage">1st Mortgage Balance ($)</label>
+                <input type="number" id="first-mortgage" inputmode="decimal" min="0" step="any" value="350000" data-helper-control="true">
+              </div>
+              <div class="field">
+                <div class="label-row">
+                  <label for="max-cltv">Max CLTV (%)</label>
+                  <button type="button" class="info-tip-btn" popovertarget="tip-cltv" aria-label="About Combined Loan-to-Value">?</button>
+                  <div id="tip-cltv" popover="auto" class="info-popover" role="tooltip">
+                    <strong>Combined Loan-to-Value (CLTV)</strong> is <code>(1st Mortgage + HELOC Limit) ÷ Home Value</code>. Most lenders cap CLTV at 80%–85%.
+                  </div>
+                </div>
+                <input type="number" id="max-cltv" inputmode="decimal" min="1" max="100" step="any" value="80" data-helper-control="true">
+              </div>
+            </div>
+            <div id="cltv-readout" class="helper-readout tabular-nums"></div>
+            <button type="button" id="apply-cltv-limit-btn" class="btn btn-secondary btn-sm">Apply Eligible Limit to Credit Line</button>
+          </div>
+        </details>
+
+        <!-- Drawer 2: Target Payoff Goal Solver -->
+        <details id="drawer-solver" class="advanced-terms" data-helper-section="true">
+          <summary>
+            <span>Target Payoff Goal Solver <span id="badge-solver" class="drawer-badge">Solve prepay</span></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <label for="goal-target-val">Target Payoff Horizon</label>
+              <span class="field-hint">Find exact monthly prepayment to clear balance in N years or before draw ends</span>
+              <div class="unit-input">
+                <input type="number" id="goal-target-val" inputmode="numeric" min="1" max="600" step="1" value="10" data-helper-control="true">
+                <label for="goal-target-unit" class="visually-hidden">Target payoff unit</label>
+                <select id="goal-target-unit" data-helper-control="true">
+                  <option value="years">Years</option>
+                  <option value="months">Months</option>
+                </select>
+              </div>
+            </div>
+            <div class="solver-actions">
+              <button type="button" id="solve-goal-btn" class="btn btn-secondary btn-sm">Solve Prepayment</button>
+              <button type="button" id="solve-zero-shock-btn" class="btn btn-secondary btn-sm">Zero Payment Shock</button>
+            </div>
+            <div id="solver-result" class="helper-readout" hidden>
+              <p id="solver-result-text"></p>
+              <button type="button" id="apply-solver-btn" class="btn btn-primary btn-sm" hidden>Apply Prepayment</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- Drawer 3: Planned Draws & One-Time Lump Sums -->
+        <details id="drawer-events" class="advanced-terms" data-helper-section="true">
+          <summary>
+            <span>Planned Draws &amp; Lump Sums <span id="badge-events" class="drawer-badge">None</span></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="quick-sample-row">
+              <button type="button" class="btn btn-ghost btn-sm" data-sample-event="reno">+ $15k Reno (Mo 14)</button>
+              <button type="button" class="btn btn-ghost btn-sm" data-sample-event="bonus">− $5k Bonus (Mo 12)</button>
+            </div>
+            <div class="field-split">
+              <div class="field">
+                <label for="event-type">Event Type</label>
+                <select id="event-type" data-helper-control="true">
+                  <option value="draw">Future Draw (+)</option>
+                  <option value="lump_sum">Lump Sum Paydown (−)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="event-month">Month (1–N)</label>
+                <input type="number" id="event-month" inputmode="numeric" min="1" max="1200" step="1" value="14" data-helper-control="true">
+              </div>
+            </div>
+            <div class="field-split">
+              <div class="field">
+                <label for="event-amount">Amount ($)</label>
+                <input type="number" id="event-amount" inputmode="decimal" min="1" step="any" value="15000" data-helper-control="true">
+              </div>
+              <div class="field">
+                <label for="event-label">Label (optional)</label>
+                <input type="text" id="event-label" maxlength="60" placeholder="Kitchen Reno" data-helper-control="true">
+              </div>
+            </div>
+            <div class="solver-actions">
+              <button type="button" id="add-event-btn" class="btn btn-secondary btn-sm">Add Event</button>
+              <button type="button" id="clear-events-btn" class="btn btn-ghost btn-sm" hidden>Clear All</button>
+            </div>
+            <p id="event-draft-error" class="helper-error" role="status" hidden></p>
+            <ul id="events-list" class="events-list"></ul>
+          </div>
+        </details>
+
+        <!-- Drawer 4: Draw Minimum Payment Rule & Fixed HELoan Comparison -->
+        <details id="drawer-draw-heloan" class="advanced-terms">
+          <summary>
+            <span>Draw Payment Rule &amp; Fixed Loan Compare <span id="badge-draw-heloan" class="drawer-badge">Interest-only</span></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field">
+              <div class="label-row">
+                <label for="draw-payment-mode">Draw Period Minimum Rule</label>
+                <button type="button" class="info-tip-btn" popovertarget="tip-draw-mode" aria-label="About Draw Minimum Rules">?</button>
+                <div id="tip-draw-mode" popover="auto" class="info-popover" role="tooltip">
+                  Some lenders require paying <code>1%–1.5%</code> of principal+interest (or a fixed dollar floor) during the draw phase instead of pure interest-only, reducing balance before repayment starts.
+                </div>
+              </div>
+              <select id="draw-payment-mode" name="draw_payment_mode">
+                <option value="interest_only">Interest-Only (Standard)</option>
+                <option value="pct_of_balance">% of Balance Minimum</option>
+                <option value="fixed_floor">Fixed Dollar Floor ($)</option>
+              </select>
+            </div>
+
+            <div class="field-split">
+              <div id="draw-min-pct-group" class="field" hidden>
+                <label for="draw-min-pct">Min Balance (%)</label>
+                <input
+                  type="number"
+                  id="draw-min-pct"
+                  name="draw_min_payment_pct"
+                  inputmode="decimal"
+                  min="0"
+                  max="100"
+                  step="any"
+                  data-error="err-draw-pct"
+                >
+                <p id="err-draw-pct" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Enter between 0% and 100%.</span>
+                </p>
+              </div>
+              <div id="draw-min-floor-group" class="field" hidden>
+                <label for="draw-min-floor">Min Dollar Floor ($)</label>
+                <input
+                  type="number"
+                  id="draw-min-floor"
+                  name="draw_min_payment_floor"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  data-error="err-draw-floor"
+                >
+                <p id="err-draw-floor" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Floor must be $0 or higher.</span>
+                </p>
+              </div>
+            </div>
+
+            <div class="checkbox-field">
+              <input type="checkbox" id="heloan-enabled" name="heloan_enabled">
+              <label for="heloan-enabled">Compare vs. Fixed Home Equity Loan</label>
+            </div>
+
+            <div id="heloan-fields-group" class="advanced-body-nested" hidden>
+              <div class="field-split">
+                <div class="field">
+                  <label for="heloan-apr">Fixed Loan APR (%)</label>
+                  <input
+                    type="number"
+                    id="heloan-apr"
+                    name="heloan_apr"
+                    inputmode="decimal"
+                    min="0"
+                    max="100"
+                    step="any"
+                    data-error="err-heloan-apr"
+                  >
+                  <p id="err-heloan-apr" class="error-msg">
+                    <span role="img" aria-label="Error">!</span>
+                    <span data-error-text>APR must be between 0% and 100%.</span>
+                  </p>
+                </div>
+                <div class="field">
+                  <label for="heloan-term-years">Term (Years)</label>
+                  <input
+                    type="number"
+                    id="heloan-term-years"
+                    name="heloan_term_years"
+                    inputmode="numeric"
+                    min="1"
+                    max="40"
+                    step="1"
+                    data-error="err-heloan-term"
+                  >
+                  <p id="err-heloan-term" class="error-msg">
+                    <span role="img" aria-label="Error">!</span>
+                    <span data-error-text>Term must be 1–40 years.</span>
+                  </p>
+                </div>
+              </div>
+              <div class="field">
+                <label for="heloan-closing-costs">Fixed Loan Closing Costs ($)</label>
+                <input
+                  type="number"
+                  id="heloan-closing-costs"
+                  name="heloan_closing_costs"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  data-error="err-heloan-fees"
+                >
+                <p id="err-heloan-fees" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Closing costs must be $0 or higher.</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Drawer 5: Calendar Start Date & Non-APR Fees -->
+        <details id="drawer-dates-fees" class="advanced-terms">
+          <summary>
+            <span>Start Date &amp; Closing / Annual Fees <span id="badge-dates-fees" class="drawer-badge">Relative mos · $0 fees</span></span>
+          </summary>
+          <div class="advanced-body">
+            <div class="field-split">
+              <div class="field">
+                <label for="start-month">Origination Month</label>
+                <select id="start-month" name="start_month">
+                  <option value="">Relative Months only</option>
+                  <option value="01">Jan</option>
+                  <option value="02">Feb</option>
+                  <option value="03">Mar</option>
+                  <option value="04">Apr</option>
+                  <option value="05">May</option>
+                  <option value="06">Jun</option>
+                  <option value="07">Jul</option>
+                  <option value="08">Aug</option>
+                  <option value="09">Sep</option>
+                  <option value="10">Oct</option>
+                  <option value="11">Nov</option>
+                  <option value="12">Dec</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="start-year">Origination Year</label>
+                <input
+                  type="number"
+                  id="start-year"
+                  name="start_year"
+                  inputmode="numeric"
+                  min="1900"
+                  max="2200"
+                  step="1"
+                  value="2026"
+                  data-error="err-start-year"
+                >
+                <p id="err-start-year" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Year must be between 1900 and 2200.</span>
+                </p>
+              </div>
+            </div>
+
+            <div class="field-split">
+              <div class="field">
+                <div class="label-row">
+                  <label for="closing-costs">Closing Costs ($)</label>
+                  <button type="button" class="info-tip-btn" popovertarget="tip-fees" aria-label="About Non-APR Fees">?</button>
+                  <div id="tip-fees" popover="auto" class="info-popover" role="tooltip">
+                    Per Regulation Z (<code>12 CFR 1026.40</code>), closing and annual HELOC fees are excluded from open-end APR calculations and tracked separately in total cost of borrowing.
+                  </div>
+                </div>
+                <input
+                  type="number"
+                  id="closing-costs"
+                  name="closing_costs"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  data-error="err-closing-costs"
+                >
+                <p id="err-closing-costs" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Closing costs must be $0 or higher.</span>
+                </p>
+              </div>
+
+              <div class="field">
+                <label for="annual-fee">Annual Fee ($/yr)</label>
+                <input
+                  type="number"
+                  id="annual-fee"
+                  name="annual_fee"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  data-error="err-annual-fee"
+                >
+                <p id="err-annual-fee" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Annual fee must be $0 or higher.</span>
+                </p>
+              </div>
+            </div>
+
+            <div class="field-split">
+              <div class="field">
+                <label for="early-closure-fee">Early Closure Fee ($)</label>
+                <input
+                  type="number"
+                  id="early-closure-fee"
+                  name="early_closure_fee"
+                  inputmode="decimal"
+                  min="0"
+                  step="any"
+                  data-error="err-early-fee"
+                >
+                <p id="err-early-fee" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Early closure fee must be $0 or higher.</span>
+                </p>
+              </div>
+              <div class="field">
+                <label for="early-closure-months">Closure Window (mos)</label>
+                <input
+                  type="number"
+                  id="early-closure-months"
+                  name="early_closure_months"
+                  inputmode="numeric"
+                  min="0"
+                  max="600"
+                  step="1"
+                  data-error="err-early-months"
+                >
+                <p id="err-early-months" class="error-msg">
+                  <span role="img" aria-label="Error">!</span>
+                  <span data-error-text>Window must be 0 months or more.</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <!-- Drawer 6: Introductory Teaser, Caps & Day-Count Conventions (Collapsed by default) -->
+        <details id="drawer-advanced" class="advanced-terms">
+          <summary>
+            <span>Intro Teaser, Caps &amp; Day-Count <span id="badge-advanced" class="drawer-badge">0.99% · 18% cap · 365d</span></span>
+          </summary>
           <div class="advanced-body">
             <div class="checkbox-field">
               <input type="checkbox" id="intro-enabled" name="intro_enabled">
@@ -469,7 +859,13 @@
             </div>
 
             <div class="field">
-              <label for="balance-method">Balance Method</label>
+              <div class="label-row">
+                <label for="balance-method">Balance Method</label>
+                <button type="button" class="info-tip-btn" popovertarget="tip-balance-method" aria-label="About Balance Methods">?</button>
+                <div id="tip-balance-method" popover="auto" class="info-popover" role="tooltip">
+                  <strong>Average Daily Balance</strong> accrues finance charges on starting balance before end-of-cycle prepayments; <strong>Adjusted Balance</strong> deducts principal prepayments first.
+                </div>
+              </div>
               <span id="hint-method" class="field-hint">Interest accrual methodology during draw cycles</span>
               <select id="balance-method" name="balance_method" aria-describedby="hint-method">
                 <option value="average_daily_balance">Average Daily Balance (ADB)</option>
@@ -497,6 +893,8 @@
     </aside>
 
     <section class="results-panel" aria-label="Simulation outputs">
+      <div id="print-summary-banner" class="print-summary-banner"></div>
+
       <div id="validation-banner" class="banner banner--warning" role="status" hidden>
         <span role="img" aria-label="Warning">!</span>
         <span id="validation-banner-text">Fix highlighted parameter errors to update results; displaying last valid trajectory.</span>
@@ -522,7 +920,13 @@
           </article>
 
           <article class="kpi-card kpi-card--shock" id="kpi-shock-card">
-            <h3 class="kpi-title">Draw &rarr; Repay Shock</h3>
+            <div class="label-row">
+              <h3 class="kpi-title">Draw &rarr; Repay Shock</h3>
+              <button type="button" class="info-tip-btn" popovertarget="tip-shock" aria-label="About Draw to Repayment Payment Shock">?</button>
+              <div id="tip-shock" popover="auto" class="info-popover" role="tooltip">
+                <strong>Payment Shock</strong> is the required monthly jump from the final Draw Period payment to the first fully-amortizing Repayment Period installment.
+              </div>
+            </div>
             <p id="kpi-shock-amount" class="kpi-value tabular-nums">$0.00</p>
             <p id="kpi-shock-sub" class="kpi-sub">
               <span id="kpi-shock-badge" class="shock-badge"></span>
@@ -551,6 +955,7 @@
       </section>
 
       <div id="cap-status-strip" class="status-strip" role="status"></div>
+      <div id="fee-summary-strip" class="status-strip status-strip--fees" role="status" hidden></div>
 
       <section id="compare-strip" class="compare-strip" aria-labelledby="compare-heading" hidden>
         <div class="compare-header">
@@ -558,6 +963,14 @@
           <span id="compare-subtitle" class="compare-subtitle"></span>
         </div>
         <div id="compare-deltas" class="compare-deltas-grid"></div>
+      </section>
+
+      <section id="heloan-compare-section" class="compare-strip heloan-compare" aria-labelledby="heloan-compare-heading" hidden>
+        <div class="compare-header">
+          <h2 id="heloan-compare-heading">HELOC vs. Fixed Home Equity Loan</h2>
+          <span id="heloan-compare-subtitle" class="compare-subtitle"></span>
+        </div>
+        <div id="heloan-compare-grid" class="compare-deltas-grid"></div>
       </section>
 
       <section class="charts-section" aria-labelledby="charts-heading">

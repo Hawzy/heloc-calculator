@@ -6,8 +6,20 @@
 A deterministic Home Equity Line of Credit (HELOC) APR, draw-to-repayment payment shock, and amortization simulation engine available as:
 
 - **Live 100% Client-Side Web Calculator:** [https://hawzy.github.io/heloc-calculator/](https://hawzy.github.io/heloc-calculator/)
-- **Python Package & CLI (`heloc`):** Local engine, tabular reporting, and CSV export
+- **Python Package & CLI (`heloc`):** Local engine, borrowing power / goal-solver / fixed-HELoan analytics, tabular reporting, and CSV export
 - **Antigravity Agent Tool (`calculate_heloc_trajectory`):** Structured JSON + annual milestones for local AI agents
+
+---
+
+## Capabilities (v2)
+
+- **HELOC Core Trajectory & Payment Shock:** Monthly interest-only or amortized simulation across draw and repayment periods with dynamic re-amortization under `flat`, `rising`, `stress_test`, and `custom` Prime rate schedules.
+- **Home Equity & CLTV Estimator (`estimate_borrowing_power`):** Calculate equity, LTV, max eligible credit limit at target CLTV (e.g., 80%–85%), and apply directly to the credit line.
+- **Target Payoff Goal Solver (`solve_monthly_prepayment`):** Binary-search solver down to exact cents for any target payoff month/year or zero draw-to-repayment payment shock.
+- **Planned Future Draws & Lump-Sum Paydowns:** Schedule renovation draws or one-time principal lump sums with chart event markers, milestones, zero-balance wait handling, and credit-limit clipping.
+- **Draw Minimum Payment Rules & Fixed HELoan Comparison (`compare_fixed_home_equity_loan`):** Compare standard interest-only vs. `%` of balance / dollar floor minimums and evaluate variable HELOC vs. a fixed-rate Home Equity Loan.
+- **Location-Agnostic Calendar Dates & Non-APR Fee Ledger:** Optional origination month/year displayed across KPIs, synchronized 3-chart hover/keyboard crosshairs, schedules, and CSV export (`calendar_month`), plus upfront closing, annual, and early-closure fee tracking separate from Regulation Z APR.
+- **Zero-Telemetry UX & Print Summary:** Collapsible Quick-Estimate drawers, linked range sliders, accessible popover toggletips, `localStorage` saved presets, shareable URLs, light/dark themes, and `@media print` PDF formatting.
 
 ---
 
@@ -102,7 +114,7 @@ print(result["milestones"])
 Run all Python unit and benchmark suites, check Python ↔ JS golden fixture drift, run Node parity/UI tests, and preview the static site locally:
 
 ```bash
-# 1. Python test suite (8 test modules)
+# 1. Python test suite (9 test modules)
 pytest -v
 
 # 2. Verify golden parity fixtures match the live Python engine
@@ -112,7 +124,7 @@ python scripts/generate_golden_fixtures.py --check
 node --test web/tests/*.test.mjs
 
 # 4. Preview the 100% static web frontend locally
-python -m http.server 8765 --bind 127.0.0.1 --directory web
+python -m http.server 8787 --bind 127.0.0.1 --directory web
 ```
 
 ---

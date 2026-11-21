@@ -36,6 +36,17 @@ def main(args: Optional[list[str]] = None) -> int:
         default=365,
         help="Year basis convention for DPR calculation (365 or 360) (default: 365)",
     )
+    parser.add_argument(
+        "--draw-payment-mode",
+        choices=["interest_only", "pct_of_balance", "fixed_floor"],
+        default="interest_only",
+        help="Draw period minimum payment rule (default: interest_only)",
+    )
+    parser.add_argument("--draw-min-pct", type=float, default=1.0, help="Draw minimum payment %% of balance (default: 1.0)")
+    parser.add_argument("--draw-min-floor", type=float, default=0.0, help="Draw minimum payment dollar floor ($) (default: 0.0)")
+    parser.add_argument("--closing-costs", type=float, default=0.0, help="Upfront closing costs ($) (default: 0.0)")
+    parser.add_argument("--annual-fee", type=float, default=0.0, help="Annual maintenance fee ($) (default: 0.0)")
+    parser.add_argument("--early-closure-fee", type=float, default=0.0, help="Early closure fee ($) (default: 0.0)")
     parser.add_argument("--csv", type=str, default=None, help="File path to export monthly CSV schedule")
 
     parsed = parser.parse_args(args)
@@ -57,6 +68,12 @@ def main(args: Optional[list[str]] = None) -> int:
             balance_method=parsed.balance_method,
             year_basis=parsed.year_basis,
             export_csv_path=parsed.csv,
+            draw_payment_mode=parsed.draw_payment_mode,
+            draw_min_payment_pct=parsed.draw_min_pct,
+            draw_min_payment_floor=parsed.draw_min_floor,
+            closing_costs=parsed.closing_costs,
+            annual_fee=parsed.annual_fee,
+            early_closure_fee=parsed.early_closure_fee,
         )
     except (ValueError, ValidationError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -78,6 +95,9 @@ def main(args: Optional[list[str]] = None) -> int:
     print(f" Total Interest Paid:      ${s['total_interest_paid']:>12,.2f}")
     print(f" Total Principal Paid:     ${s['total_principal_paid']:>12,.2f}")
     print(f" Total Cumulative Outlay:  ${s['total_payments']:>12,.2f}")
+    if s.get("total_fees", 0.0) > 0:
+        print(f" Total Non-APR Fees:       ${s['total_fees']:>12,.2f}")
+        print(f" Total Outlay + Fees:      ${s['total_cost_with_fees']:>12,.2f}")
 
     if s["interest_savings_vs_baseline"] > 0:
         print("=" * 70)

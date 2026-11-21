@@ -4,6 +4,7 @@
  */
 
 import { pyRound } from "../engine/index.js";
+import { formatLoanMonthDate, formatLoanYearSpan } from "./dates.js";
 
 const moneyFmt = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -28,6 +29,8 @@ function buildFilteredAnnualRows(records, phaseFilter) {
     if (!g) {
       g = {
         year: r.year,
+        first_month: r.month,
+        last_month: r.month,
         phases: new Set([r.phase]),
         start_balance: r.starting_balance,
         end_balance: r.ending_balance,
@@ -39,6 +42,7 @@ function buildFilteredAnnualRows(records, phaseFilter) {
       };
       groups.set(r.year, g);
     } else {
+      g.last_month = r.month;
       g.phases.add(r.phase);
       g.end_balance = r.ending_balance;
       g.aprSum += r.effective_apr;
@@ -51,6 +55,8 @@ function buildFilteredAnnualRows(records, phaseFilter) {
 
   return Array.from(groups.values()).map((g) => ({
     year: g.year,
+    first_month: g.first_month,
+    last_month: g.last_month,
     phaseLabel:
       g.phases.size > 1
         ? "Draw -> Repay"
@@ -74,10 +80,17 @@ function buildFilteredAnnualRows(records, phaseFilter) {
  *   containerEl: HTMLElement,
  *   result: ReturnType<import('../engine/index.js').calculateHelocTrajectory>,
  *   viewMode: "annual" | "monthly",
- *   phaseFilter: "all" | "draw" | "repayment"
+ *   phaseFilter: "all" | "draw" | "repayment",
+ *   startYearMonth?: string | null
  * }} opts
  */
-export function renderScheduleTable({ containerEl, result, viewMode, phaseFilter }) {
+export function renderScheduleTable({
+  containerEl,
+  result,
+  viewMode,
+  phaseFilter,
+  startYearMonth = null,
+}) {
   containerEl.replaceChildren();
 
   const { config, records } = result;
@@ -131,7 +144,8 @@ export function renderScheduleTable({ containerEl, result, viewMode, phaseFilter
         const tr = document.createElement("tr");
         if (row.hasTransition) tr.classList.add("row-phase-transition");
 
-        const th = el("th", null, `Year ${row.year}`);
+        const yearSpan = formatLoanYearSpan(startYearMonth, row.first_month, row.last_month);
+        const th = el("th", null, yearSpan ? `Yr ${row.year} (${yearSpan})` : `Year ${row.year}`);
         th.scope = "row";
 
         const phaseTd = el("td");
@@ -188,14 +202,19 @@ export function renderScheduleTable({ containerEl, result, viewMode, phaseFilter
       emptyTr.append(emptyTd);
       tbody.append(emptyTr);
     } else {
+      const eventMonths = new Set((config.cash_flow_events ?? []).map((ev) => ev.month));
       const frag = document.createDocumentFragment();
       for (const r of rows) {
         const tr = document.createElement("tr");
         if (r.month === config.draw_period_months + 1) {
           tr.classList.add("row-phase-transition");
         }
+        if (eventMonths.has(r.month)) {
+          tr.classList.add("row-has-event");
+        }
 
-        const th = el("th", null, `Mo ${r.month}`);
+        const calLabel = formatLoanMonthDate(startYearMonth, r.month);
+        const th = el("th", null, calLabel ? `Mo ${r.month} · ${calLabel}` : `Mo ${r.month}`);
         th.scope = "row";
 
         const phaseTd = el("td");

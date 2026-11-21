@@ -20,8 +20,14 @@ import {
   savePreset,
 } from "../js/ui/presets.js";
 import { CSV_COLUMNS, recordsToCsv } from "../js/ui/csv.js";
+import {
+  addMonthsToYearMonth,
+  formatLoanMonthDate,
+  formatLoanYearSpan,
+  parseYearMonth,
+} from "../js/ui/dates.js";
 import { initThemeToggle } from "../js/ui/theme.js";
-import { createAnnouncer, initFormValidation } from "../js/ui/a11y.js";
+import { createAnnouncer, initFormValidation, initPopovers } from "../js/ui/a11y.js";
 import { renderCharts } from "../js/ui/charts.js";
 import { renderScheduleTable } from "../js/ui/table.js";
 
@@ -165,11 +171,75 @@ test("UI module exports load cleanly as ES modules", () => {
   assert.equal(typeof initThemeToggle, "function");
   assert.equal(typeof createAnnouncer, "function");
   assert.equal(typeof initFormValidation, "function");
+  assert.equal(typeof initPopovers, "function");
   assert.equal(typeof renderCharts, "function");
   assert.equal(typeof renderScheduleTable, "function");
 });
 
-test("HTML decimal numeric inputs use step='any' to avoid stepMismatch on default/arbitrary values", () => {
+test("location-agnostic calendar date arithmetic works across year boundaries", () => {
+  assert.deepEqual(parseYearMonth("2026-11"), { year: 2026, month: 11 });
+  assert.equal(parseYearMonth("2026-13"), null);
+  assert.equal(parseYearMonth("invalid"), null);
+
+  assert.deepEqual(addMonthsToYearMonth({ year: 2026, month: 11 }, 2), { year: 2027, month: 1 });
+  assert.equal(formatLoanMonthDate("2026-11", 1), "Nov 2026");
+  assert.equal(formatLoanMonthDate("2026-11", 14), "Dec 2027");
+  assert.equal(formatLoanMonthDate(null, 14), null);
+  assert.equal(formatLoanYearSpan("2026-11", 1, 12), "Nov 2026–Oct 2027");
+  assert.equal(formatLoanYearSpan("2026-11", 13, 13), "Nov 2027");
+});
+
+test("v2 URL query round-trip preserves draw rules, staged events, fees, dates, and HELoan comparison", () => {
+  const v2Params = {
+    ...DEFAULT_SCENARIO,
+    intro_apr: null,
+    draw_payment_mode: "pct_of_balance",
+    draw_min_payment_pct: 1.5,
+    draw_min_payment_floor: 150,
+    cash_flow_events: [
+      { month: 14, amount: 15000, event_type: "draw", label: "Kitchen Reno" },
+      { month: 24, amount: 5000, event_type: "lump_sum", label: "Tax Refund" },
+    ],
+    closing_costs: 650,
+    annual_fee: 75,
+    early_closure_fee: 500,
+    early_closure_months: 36,
+    start_year_month: "2026-11",
+    heloan_enabled: true,
+    heloan_apr: 7.25,
+    heloan_term_years: 15,
+    heloan_closing_costs: 450,
+  };
+
+  const qs = serializeToQueryString(v2Params);
+  const parsed = parseQueryString(`?${qs}`);
+  assert.deepEqual(parsed.warnings, []);
+  assert.deepEqual(parsed.params, v2Params);
+
+  // Tampered v2 query params safely trigger warnings without throwing
+  const bad = parseQueryString("?start=bad&drawMode=foo&events=draw:9999:5000:TooLate|draw:5:1000:OK");
+  assert.ok(bad.warnings.length >= 3);
+  assert.equal(bad.params.cash_flow_events.length, 1);
+  assert.equal(bad.params.cash_flow_events[0].month, 5);
+});
+
+test("recordsToCsv appends calendar_month only when startYearMonth is supplied", () => {
+  const result = calculateHelocTrajectory({
+    initial_principal: 10000,
+    credit_limit: 50000,
+    monthly_prepayment: 2000,
+  });
+  const baseCsv = recordsToCsv(result.records);
+  assert.equal(baseCsv.split("\r\n")[0].split(",").length, 12);
+
+  const calCsv = recordsToCsv(result.records, { startYearMonth: "2026-11" });
+  const lines = calCsv.trimEnd().split("\r\n");
+  assert.equal(lines[0], `${CSV_COLUMNS.join(",")},calendar_month`);
+  assert.ok(lines[1].endsWith(",2026-11"));
+  assert.ok(lines[3].endsWith(",2027-01"));
+});
+
+test("HTML decimal numeric inputs use step='any' and helper drawers stay collapsed on initial load", () => {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const html = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf-8");
   const decimalFields = [
@@ -182,11 +252,31 @@ test("HTML decimal numeric inputs use step='any' to avoid stepMismatch on defaul
     "intro_apr",
     "lifetime_rate_cap",
     "regulatory_ceiling",
+    "draw_min_payment_pct",
+    "draw_min_payment_floor",
+    "closing_costs",
+    "annual_fee",
+    "early_closure_fee",
+    "heloan_apr",
+    "heloan_closing_costs",
   ];
 
   for (const name of decimalFields) {
     const tagMatch = html.match(new RegExp(`<input[^>]*name="${name}"[^>]*>`, "s"));
     assert.ok(tagMatch, `Missing input tag for ${name}`);
     assert.match(tagMatch[0], /\bstep="any"/, `Input ${name} must use step="any"`);
+  }
+
+  for (const drawerId of [
+    "drawer-cltv",
+    "drawer-solver",
+    "drawer-events",
+    "drawer-draw-heloan",
+    "drawer-dates-fees",
+    "drawer-advanced",
+  ]) {
+    const tagMatch = html.match(new RegExp(`<details[^>]*id="${drawerId}"[^>]*>`));
+    assert.ok(tagMatch, `Missing details drawer ${drawerId}`);
+    assert.doesNotMatch(tagMatch[0], /\bopen\b/, `Drawer ${drawerId} must start collapsed`);
   }
 });

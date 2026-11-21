@@ -2,10 +2,19 @@
  * Main client-side application controller for the HELOC Trajectory Calculator.
  */
 
-import { ConfigValidationError, calculateHelocTrajectory } from "./engine/index.js";
-import { createAnnouncer, initFormValidation } from "./ui/a11y.js";
+import {
+  ConfigValidationError,
+  calculateHelocTrajectory,
+  compareFixedHomeEquityLoan,
+  estimateBorrowingPower,
+  generatePrimeRates,
+  solveMonthlyPrepayment,
+  validateConfig,
+} from "./engine/index.js";
+import { createAnnouncer, initFormValidation, initPopovers } from "./ui/a11y.js";
 import { renderCharts } from "./ui/charts.js";
 import { recordsToCsv, triggerCsvDownload } from "./ui/csv.js";
+import { formatLoanMonthDate, formatYearMonthLabel, parseYearMonth } from "./ui/dates.js";
 import { deletePreset, loadSavedPresets, savePreset } from "./ui/presets.js";
 import {
   BUILTIN_PRESETS,
@@ -24,6 +33,12 @@ const moneyFmt = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const moneyWholeFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
 function el(tag, className = null, text = null) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -36,14 +51,29 @@ function formatMonthsAndYears(months) {
   return `${months} mo${months === 1 ? "" : "s"} (${yrs} yrs)`;
 }
 
+function syncRangeStyles(rangeEl, value, textLabel) {
+  const min = Number(rangeEl.min || 0);
+  const max = Number(rangeEl.max || 100);
+  const clamped = Math.min(max, Math.max(min, Number(value) || 0));
+  rangeEl.value = String(clamped);
+  rangeEl.style.setProperty("--attr-min", String(min));
+  rangeEl.style.setProperty("--attr-max", String(max));
+  rangeEl.style.setProperty("--control-value", String(clamped));
+  if (textLabel) {
+    rangeEl.setAttribute("aria-valuetext", textLabel);
+  }
+}
+
 function main() {
   const form = document.getElementById("heloc-form");
   const announcer = createAnnouncer();
   const validation = initFormValidation(form, announcer);
+  initPopovers(document);
   initThemeToggle(document.getElementById("theme-toggle"));
 
-  // Form inputs
+  // Primary form inputs & sliders
   const principalEl = document.getElementById("initial-principal");
+  const principalRangeEl = document.getElementById("principal-range");
   const limitEl = document.getElementById("credit-limit");
   const utilBarEl = document.getElementById("utilization-bar");
   const utilTextEl = document.getElementById("utilization-text");
@@ -54,19 +84,75 @@ function main() {
   const prepayEl = document.getElementById("monthly-prepayment");
   const prepayRangeEl = document.getElementById("prepayment-range");
   const primeEl = document.getElementById("prime-rate");
+  const primeRangeEl = document.getElementById("prime-range");
   const marginEl = document.getElementById("margin-rate");
   const annualStepGroup = document.getElementById("annual-step-group");
   const annualStepEl = document.getElementById("annual-rate-step");
   const customRatesGroup = document.getElementById("custom-rates-group");
   const customRatesEl = document.getElementById("custom-rates-input");
+
+  // Advanced / caps
   const introEnabledEl = document.getElementById("intro-enabled");
   const introAprEl = document.getElementById("intro-apr");
   const introMonthsEl = document.getElementById("intro-months");
   const capEl = document.getElementById("lifetime-cap");
   const usuryEl = document.getElementById("regulatory-ceiling");
   const methodEl = document.getElementById("balance-method");
+  const badgeAdvanced = document.getElementById("badge-advanced");
+
+  // Drawer 1: CLTV Estimator
+  const homeValueEl = document.getElementById("home-value");
+  const firstMortgageEl = document.getElementById("first-mortgage");
+  const maxCltvEl = document.getElementById("max-cltv");
+  const cltvReadoutEl = document.getElementById("cltv-readout");
+  const applyCltvLimitBtn = document.getElementById("apply-cltv-limit-btn");
+  const badgeCltv = document.getElementById("badge-cltv");
+
+  // Drawer 2: Target Payoff Goal Solver
+  const goalTargetValEl = document.getElementById("goal-target-val");
+  const goalTargetUnitEl = document.getElementById("goal-target-unit");
+  const solveGoalBtn = document.getElementById("solve-goal-btn");
+  const solveZeroShockBtn = document.getElementById("solve-zero-shock-btn");
+  const solverResultEl = document.getElementById("solver-result");
+  const solverResultTextEl = document.getElementById("solver-result-text");
+  const applySolverBtn = document.getElementById("apply-solver-btn");
+  const badgeSolver = document.getElementById("badge-solver");
+
+  // Drawer 3: Planned Draws & Lump Sums
+  const eventTypeEl = document.getElementById("event-type");
+  const eventMonthEl = document.getElementById("event-month");
+  const eventAmountEl = document.getElementById("event-amount");
+  const eventLabelEl = document.getElementById("event-label");
+  const addEventBtn = document.getElementById("add-event-btn");
+  const clearEventsBtn = document.getElementById("clear-events-btn");
+  const eventDraftErrorEl = document.getElementById("event-draft-error");
+  const eventsListEl = document.getElementById("events-list");
+  const badgeEvents = document.getElementById("badge-events");
+
+  // Drawer 4: Draw Min Rules & Fixed HELoan Compare
+  const drawModeEl = document.getElementById("draw-payment-mode");
+  const drawMinPctGroup = document.getElementById("draw-min-pct-group");
+  const drawMinPctEl = document.getElementById("draw-min-pct");
+  const drawMinFloorGroup = document.getElementById("draw-min-floor-group");
+  const drawMinFloorEl = document.getElementById("draw-min-floor");
+  const heloanEnabledEl = document.getElementById("heloan-enabled");
+  const heloanFieldsGroup = document.getElementById("heloan-fields-group");
+  const heloanAprEl = document.getElementById("heloan-apr");
+  const heloanTermYearsEl = document.getElementById("heloan-term-years");
+  const heloanClosingCostsEl = document.getElementById("heloan-closing-costs");
+  const badgeDrawHeloan = document.getElementById("badge-draw-heloan");
+
+  // Drawer 5: Start Date & Fees
+  const startMonthEl = document.getElementById("start-month");
+  const startYearEl = document.getElementById("start-year");
+  const closingCostsEl = document.getElementById("closing-costs");
+  const annualFeeEl = document.getElementById("annual-fee");
+  const earlyClosureFeeEl = document.getElementById("early-closure-fee");
+  const earlyClosureMonthsEl = document.getElementById("early-closure-months");
+  const badgeDatesFees = document.getElementById("badge-dates-fees");
 
   // Output elements
+  const printSummaryBanner = document.getElementById("print-summary-banner");
   const validationBanner = document.getElementById("validation-banner");
   const validationBannerText = document.getElementById("validation-banner-text");
   const urlWarningBanner = document.getElementById("url-warning-banner");
@@ -88,9 +174,13 @@ function main() {
   const kpiSavingsMonths = document.getElementById("kpi-savings-months");
 
   const capStatusStrip = document.getElementById("cap-status-strip");
+  const feeSummaryStrip = document.getElementById("fee-summary-strip");
   const compareStrip = document.getElementById("compare-strip");
   const compareSubtitle = document.getElementById("compare-subtitle");
   const compareDeltas = document.getElementById("compare-deltas");
+  const heloanCompareSection = document.getElementById("heloan-compare-section");
+  const heloanCompareSubtitle = document.getElementById("heloan-compare-subtitle");
+  const heloanCompareGrid = document.getElementById("heloan-compare-grid");
   const milestonesList = document.getElementById("milestones-list");
 
   const chartBalanceEl = document.getElementById("chart-balance");
@@ -107,6 +197,7 @@ function main() {
   const resetBtn = document.getElementById("reset-btn");
   const shareBtn = document.getElementById("share-btn");
   const shareBtnLabel = document.getElementById("share-btn-label");
+  const printBtn = document.getElementById("print-btn");
 
   const viewAnnualBtn = document.getElementById("view-annual-btn");
   const viewMonthlyBtn = document.getElementById("view-monthly-btn");
@@ -120,7 +211,11 @@ function main() {
     window.location.search,
     DEFAULT_SCENARIO,
   );
-  let activeParams = { ...initialParams };
+  let activeParams = {
+    ...DEFAULT_SCENARIO,
+    ...initialParams,
+    cash_flow_events: (initialParams.cash_flow_events ?? []).map((ev) => ({ ...ev })),
+  };
   let lastValidResult = calculateHelocTrajectory(activeParams);
   let savedPresets = loadSavedPresets();
   let activeBuiltinId = null;
@@ -141,7 +236,7 @@ function main() {
         const a = params[k];
         const b = preset.params[k];
         if (Array.isArray(a) || Array.isArray(b)) {
-          return JSON.stringify(a) === JSON.stringify(b);
+          return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
         }
         return a === b;
       });
@@ -161,6 +256,28 @@ function main() {
     introMonthsEl.disabled = !enabled;
   }
 
+  function updateDrawModeStates() {
+    const mode = drawModeEl.value;
+    const needsPct = mode === "pct_of_balance";
+    const needsFloor = mode === "pct_of_balance" || mode === "fixed_floor";
+    drawMinPctGroup.hidden = !needsPct;
+    drawMinPctEl.disabled = !needsPct;
+    drawMinFloorGroup.hidden = !needsFloor;
+    drawMinFloorEl.disabled = !needsFloor;
+  }
+
+  function updateHeloanFieldStates() {
+    const enabled = heloanEnabledEl.checked;
+    heloanFieldsGroup.hidden = !enabled;
+    heloanAprEl.disabled = !enabled;
+    heloanTermYearsEl.disabled = !enabled;
+    heloanClosingCostsEl.disabled = !enabled;
+  }
+
+  function updateStartDateFieldState() {
+    startYearEl.disabled = startMonthEl.value === "";
+  }
+
   function updateUtilizationMeter(principal, limit) {
     const ratio =
       Number.isFinite(principal) && Number.isFinite(limit) && limit > 0
@@ -170,9 +287,134 @@ function main() {
     utilTextEl.textContent = `${ratio.toFixed(1)}%`;
   }
 
+  function syncPrincipalRangeBounds(principal, limit) {
+    const maxVal = Number.isFinite(limit) && limit >= 1000 ? limit : 100000;
+    principalRangeEl.max = String(maxVal);
+    principalRangeEl.step = String(maxVal >= 50000 ? 1000 : 250);
+    const val = Number.isFinite(principal) ? principal : activeParams.initial_principal;
+    syncRangeStyles(principalRangeEl, val, moneyWholeFmt.format(Math.max(0, val)));
+  }
+
+  function updateCltvReadout() {
+    const hv = Number(homeValueEl.value);
+    const mtg = Number(firstMortgageEl.value);
+    const maxCltv = Number(maxCltvEl.value);
+    cltvReadoutEl.replaceChildren();
+
+    if (
+      !Number.isFinite(hv) ||
+      hv <= 0 ||
+      !Number.isFinite(mtg) ||
+      mtg < 0 ||
+      !Number.isFinite(maxCltv) ||
+      maxCltv <= 0 ||
+      maxCltv > 100
+    ) {
+      cltvReadoutEl.dataset.warning = "true";
+      cltvReadoutEl.append(el("p", null, "Enter valid home value (> $0), mortgage (≥ $0), and max CLTV (1%–100%)."));
+      applyCltvLimitBtn.disabled = true;
+      badgeCltv.textContent = "CLTV";
+      return null;
+    }
+
+    const cltv = estimateBorrowingPower(
+      hv,
+      mtg,
+      maxCltv,
+      activeParams.credit_limit,
+      activeParams.initial_principal,
+    );
+    cltvReadoutEl.dataset.warning = String(cltv.exceeds_max_cltv || cltv.max_heloc_limit <= 0);
+    cltvReadoutEl.append(
+      el(
+        "p",
+        null,
+        `Current Equity: ${moneyWholeFmt.format(cltv.current_equity)} · Current LTV: ${cltv.current_ltv_pct.toFixed(1)}%`,
+      ),
+      el(
+        "p",
+        null,
+        `Max Eligible Line (@ ${cltv.max_cltv_pct.toFixed(1)}% CLTV): ${moneyWholeFmt.format(cltv.max_heloc_limit)}`,
+      ),
+      el(
+        "p",
+        null,
+        `Projected CLTV (Limit / Drawn): ${cltv.projected_cltv_pct.toFixed(1)}% / ${cltv.drawn_cltv_pct.toFixed(1)}%${cltv.exceeds_max_cltv ? " [!] Exceeds Max CLTV" : ""}`,
+      ),
+    );
+    badgeCltv.textContent = `${cltv.max_cltv_pct.toFixed(0)}% · Max ${moneyWholeFmt.format(cltv.max_heloc_limit)}`;
+    applyCltvLimitBtn.disabled = cltv.max_heloc_limit <= 0;
+    return cltv;
+  }
+
+  function renderEventsList() {
+    const events = activeParams.cash_flow_events ?? [];
+    eventsListEl.replaceChildren();
+    clearEventsBtn.hidden = events.length === 0;
+    badgeEvents.textContent = events.length > 0 ? `${events.length} active` : "None";
+
+    for (let i = 0; i < events.length; i += 1) {
+      const ev = events[i];
+      const li = el("li", "event-row");
+      const meta = el("div", "event-row-meta");
+      const isDrawEv = ev.event_type === "draw";
+      meta.append(
+        el(
+          "span",
+          `event-tag ${isDrawEv ? "event-tag--draw" : "event-tag--lump"}`,
+          isDrawEv ? "+Draw" : "−Lump",
+        ),
+      );
+      const calStr = formatLoanMonthDate(activeParams.start_year_month, ev.month);
+      const when = calStr ? `Mo ${ev.month} (${calStr})` : `Mo ${ev.month}`;
+      const labelPart = ev.label ? ` · ${ev.label}` : "";
+      meta.append(el("span", "tabular-nums", `${when}: ${moneyWholeFmt.format(ev.amount)}${labelPart}`));
+
+      const delBtn = el("button", "event-remove-btn", "×");
+      delBtn.type = "button";
+      delBtn.setAttribute("aria-label", `Remove ${isDrawEv ? "draw" : "lump sum"} in month ${ev.month}`);
+      delBtn.addEventListener("click", () => {
+        activeParams = {
+          ...activeParams,
+          cash_flow_events: activeParams.cash_flow_events.filter((_, idx) => idx !== i),
+        };
+        activeBuiltinId = detectMatchingBuiltin(activeParams);
+        runAndRender(true);
+        renderEventsList();
+        announcer.announce(`Removed scheduled event in month ${ev.month}.`);
+      });
+
+      li.append(meta, delBtn);
+      eventsListEl.append(li);
+    }
+  }
+
+  function updateDrawerBadges(params, result) {
+    const { config, summary } = result;
+    const introTag =
+      config.intro_apr !== null && config.intro_apr !== undefined
+        ? `${config.intro_apr}% intro`
+        : "No intro";
+    badgeAdvanced.textContent = `${introTag} · ${config.lifetime_rate_cap}% cap · ${config.year_basis}d`;
+
+    const modeBadgeMap = {
+      interest_only: "Interest-only",
+      pct_of_balance: `${config.draw_min_payment_pct}% min`,
+      fixed_floor: `${moneyWholeFmt.format(config.draw_min_payment_floor)} floor`,
+    };
+    const heloanTag = params.heloan_enabled ? ` vs ${params.heloan_apr}% Fixed` : "";
+    badgeDrawHeloan.textContent = `${modeBadgeMap[config.draw_payment_mode]}${heloanTag}`;
+
+    const startYm = parseYearMonth(params.start_year_month);
+    const startTag = startYm ? formatYearMonthLabel(startYm) : "Relative mos";
+    const feeTag = summary.total_fees > 0 ? `${moneyWholeFmt.format(summary.total_fees)} fees` : "$0 fees";
+    badgeDatesFees.textContent = `${startTag} · ${feeTag}`;
+  }
+
   function populateForm(params) {
     principalEl.value = String(params.initial_principal);
     limitEl.value = String(params.credit_limit);
+    syncPrincipalRangeBounds(params.initial_principal, params.credit_limit);
 
     if (params.draw_period_months % 12 === 0) {
       drawUnitEl.value = "years";
@@ -191,9 +433,14 @@ function main() {
     }
 
     prepayEl.value = String(params.monthly_prepayment);
-    prepayRangeEl.value = String(Math.min(2500, Math.max(0, params.monthly_prepayment)));
+    syncRangeStyles(
+      prepayRangeEl,
+      params.monthly_prepayment,
+      `${moneyWholeFmt.format(params.monthly_prepayment)} per month`,
+    );
 
     primeEl.value = String(params.prime_rate);
+    syncRangeStyles(primeRangeEl, params.prime_rate, `${params.prime_rate}%`);
     marginEl.value = String(params.margin);
 
     const scenarioRadio = form.querySelector(
@@ -240,14 +487,48 @@ function main() {
     const basisRadio = form.querySelector(`input[name="year_basis"][value="${params.year_basis}"]`);
     if (basisRadio) basisRadio.checked = true;
 
+    // v2 Draw payment rule & HELoan comparison
+    drawModeEl.value = params.draw_payment_mode ?? "interest_only";
+    drawMinPctEl.value = String(params.draw_min_payment_pct ?? 1.0);
+    drawMinFloorEl.value = String(params.draw_min_payment_floor ?? 0);
+    updateDrawModeStates();
+
+    heloanEnabledEl.checked = Boolean(params.heloan_enabled);
+    heloanAprEl.value = String(params.heloan_apr ?? DEFAULT_SCENARIO.heloan_apr);
+    heloanTermYearsEl.value = String(params.heloan_term_years ?? DEFAULT_SCENARIO.heloan_term_years);
+    heloanClosingCostsEl.value = String(params.heloan_closing_costs ?? 0);
+    updateHeloanFieldStates();
+
+    // v2 Calendar start date & fee ledger
+    const parsedStart = parseYearMonth(params.start_year_month);
+    if (parsedStart) {
+      startMonthEl.value = String(parsedStart.month).padStart(2, "0");
+      startYearEl.value = String(parsedStart.year);
+    } else {
+      startMonthEl.value = "";
+      if (!startYearEl.value) startYearEl.value = "2026";
+    }
+    updateStartDateFieldState();
+
+    closingCostsEl.value = String(params.closing_costs ?? 0);
+    annualFeeEl.value = String(params.annual_fee ?? 0);
+    earlyClosureFeeEl.value = String(params.early_closure_fee ?? 0);
+    earlyClosureMonthsEl.value = String(params.early_closure_months ?? 36);
+
     updateConditionalVisibility(params.rate_scenario);
     updateUtilizationMeter(params.initial_principal, params.credit_limit);
 
     // Clear residual validation markers when programmatically populating
     form.querySelectorAll("input, select, textarea").forEach((ctrl) => {
-      validation.clearFieldError(ctrl);
+      if (validation.isMainControl(ctrl)) {
+        validation.clearFieldError(ctrl);
+      }
     });
     validationBanner.hidden = true;
+    eventDraftErrorEl.hidden = true;
+    solverResultEl.hidden = true;
+    badgeSolver.textContent = "Solve prepay";
+    renderEventsList();
   }
 
   function renderBuiltinPills() {
@@ -258,7 +539,11 @@ function main() {
       btn.title = preset.description;
       btn.setAttribute("aria-pressed", String(activeBuiltinId === preset.id));
       btn.addEventListener("click", () => {
-        activeParams = { ...preset.params };
+        activeParams = {
+          ...DEFAULT_SCENARIO,
+          ...preset.params,
+          cash_flow_events: (preset.params.cash_flow_events ?? []).map((ev) => ({ ...ev })),
+        };
         activeBuiltinId = preset.id;
         populateForm(activeParams);
         runAndRender(true);
@@ -277,7 +562,11 @@ function main() {
       loadBtn.type = "button";
       loadBtn.setAttribute("aria-label", `Load saved scenario ${item.name}`);
       loadBtn.addEventListener("click", () => {
-        activeParams = { ...DEFAULT_SCENARIO, ...item.params };
+        activeParams = {
+          ...DEFAULT_SCENARIO,
+          ...item.params,
+          cash_flow_events: (item.params.cash_flow_events ?? []).map((ev) => ({ ...ev })),
+        };
         activeBuiltinId = detectMatchingBuiltin(activeParams);
         populateForm(activeParams);
         runAndRender(true);
@@ -385,16 +674,115 @@ function main() {
     compareStrip.hidden = false;
   }
 
+  function renderHeloanComparison(result) {
+    heloanCompareGrid.replaceChildren();
+    if (!activeParams.heloan_enabled) {
+      heloanCompareSection.hidden = true;
+      return;
+    }
+
+    const { summary } = result;
+    const heloan = compareFixedHomeEquityLoan(
+      summary.initial_principal,
+      Number(activeParams.heloan_apr),
+      Number(activeParams.heloan_term_years) * 12,
+      summary,
+      Number(activeParams.heloan_closing_costs ?? 0),
+    );
+
+    const drawNote =
+      summary.total_additional_draws > 0
+        ? ` · Fixed HELoan models initial ${moneyWholeFmt.format(summary.initial_principal)} lump sum only`
+        : "";
+    heloanCompareSubtitle.textContent =
+      `Fixed ${heloan.fixed_apr.toFixed(2)}% APR for ${activeParams.heloan_term_years} yrs vs. Active HELOC${drawNote}`;
+
+    const fmtDeltaInterest =
+      heloan.interest_delta_vs_heloc >= 0
+        ? `Fixed saves ${moneyFmt.format(heloan.interest_delta_vs_heloc)}`
+        : `HELOC saves ${moneyFmt.format(Math.abs(heloan.interest_delta_vs_heloc))}`;
+    const fmtDeltaCost =
+      heloan.total_cost_delta_vs_heloc >= 0
+        ? `Fixed saves ${moneyFmt.format(heloan.total_cost_delta_vs_heloc)}`
+        : `HELOC saves ${moneyFmt.format(Math.abs(heloan.total_cost_delta_vs_heloc))}`;
+
+    const cards = [
+      {
+        label: "Fixed Monthly Payment",
+        val: `${moneyFmt.format(heloan.monthly_payment)}/mo (level)`,
+      },
+      {
+        label: "Fixed Total Interest",
+        val: `${moneyFmt.format(heloan.total_interest_paid)} (${fmtDeltaInterest})`,
+      },
+      {
+        label: "Total Cost (incl. fees)",
+        val: `${moneyFmt.format(heloan.total_cost_with_fees)} (${fmtDeltaCost})`,
+      },
+      {
+        label: "Repayment Shock Avoided",
+        val: moneyFmt.format(heloan.payment_shock_avoided),
+      },
+    ];
+
+    for (const item of cards) {
+      const card = el("div", "delta-card");
+      card.append(
+        el("span", "delta-label", item.label),
+        el("span", "delta-value tabular-nums", item.val),
+      );
+      heloanCompareGrid.append(card);
+    }
+    heloanCompareSection.hidden = false;
+  }
+
+  function renderPrintSummaryBanner(result) {
+    const { config, summary } = result;
+    const startLabel = formatLoanMonthDate(activeParams.start_year_month, 1);
+    const payoffDate = formatLoanMonthDate(
+      activeParams.start_year_month,
+      summary.actual_months_to_payoff,
+    );
+    printSummaryBanner.replaceChildren();
+    printSummaryBanner.append(
+      el(
+        "strong",
+        null,
+        `HELOC Simulation Report — Balance ${moneyWholeFmt.format(config.initial_principal)} / Limit ${moneyWholeFmt.format(config.credit_limit)}`,
+      ),
+      el(
+        "span",
+        "tabular-nums",
+        `Rate Scenario: ${activeParams.rate_scenario} (Prime ${activeParams.prime_rate}% + Margin ${config.margin}%) · Draw/Repay: ${config.draw_period_months}/${config.repayment_period_months} mos · Extra Prepay: ${moneyFmt.format(config.monthly_prepayment)}/mo${startLabel ? ` · Start: ${startLabel} · Payoff: ${payoffDate}` : ""}`,
+      ),
+      el(
+        "span",
+        "tabular-nums",
+        `Total Interest: ${moneyFmt.format(summary.total_interest_paid)} · Non-APR Fees: ${moneyFmt.format(summary.total_fees)} · Total Cost w/ Fees: ${moneyFmt.format(summary.total_cost_with_fees)}`,
+      ),
+    );
+  }
+
   function renderDashboard(result) {
-    const { config, summary, milestones, cap_stats: caps, records } = result;
+    const { config, summary, milestones, cap_stats: caps, records, clipped_draws: clipped } = result;
+    const startYM = activeParams.start_year_month;
 
     // 1. KPI Cards
     kpiDrawPayment.textContent = `${moneyFmt.format(summary.initial_draw_payment)}/mo`;
-    kpiDrawSub.textContent = `Month 1 interest-only (${records[0]?.effective_apr.toFixed(2) ?? "0.00"}% APR)`;
+    const drawModeLabel =
+      config.draw_payment_mode === "pct_of_balance"
+        ? `${config.draw_min_payment_pct}% bal min`
+        : config.draw_payment_mode === "fixed_floor"
+          ? `${moneyWholeFmt.format(config.draw_min_payment_floor)} floor`
+          : "interest-only";
+    kpiDrawSub.textContent = `Month 1 ${drawModeLabel} (${records[0]?.effective_apr.toFixed(2) ?? "0.00"}% APR)`;
 
     if (summary.actual_months_to_payoff > config.draw_period_months) {
       kpiRepayPayment.textContent = `${moneyFmt.format(summary.first_repayment_payment)}/mo`;
-      kpiRepaySub.textContent = `Month ${config.draw_period_months + 1} dynamic amortization`;
+      const repayCal = formatLoanMonthDate(startYM, config.draw_period_months + 1);
+      kpiRepaySub.textContent = repayCal
+        ? `Month ${config.draw_period_months + 1} (${repayCal})`
+        : `Month ${config.draw_period_months + 1} dynamic amortization`;
     } else {
       kpiRepayPayment.textContent = "$0.00";
       kpiRepaySub.textContent = "Paid off during draw period";
@@ -418,19 +806,26 @@ function main() {
     }
 
     kpiTotalInterest.textContent = moneyFmt.format(summary.total_interest_paid);
-    kpiTotalOutlay.textContent = `Total outlay: ${moneyFmt.format(summary.total_payments)}`;
+    kpiTotalOutlay.textContent =
+      summary.total_fees > 0
+        ? `Outlay: ${moneyFmt.format(summary.total_payments)} + ${moneyFmt.format(summary.total_fees)} fees`
+        : `Total outlay: ${moneyFmt.format(summary.total_payments)}`;
 
     kpiPayoffMonths.textContent = formatMonthsAndYears(summary.actual_months_to_payoff);
-    kpiPayoffSub.textContent = `of ${summary.total_months_scheduled} scheduled months`;
+    const payoffCal = formatLoanMonthDate(startYM, summary.actual_months_to_payoff);
+    kpiPayoffSub.textContent = payoffCal
+      ? `of ${summary.total_months_scheduled} scheduled · Est. ${payoffCal}`
+      : `of ${summary.total_months_scheduled} scheduled months`;
 
     kpiSavingsAmount.textContent = moneyFmt.format(summary.interest_savings_vs_baseline);
-    if (config.monthly_prepayment > 0) {
-      kpiSavingsMonths.textContent = `${summary.months_saved_vs_baseline} months faster`;
+    if (config.monthly_prepayment > 0 || summary.total_lump_sum_payments > 0) {
+      const lumpNote = summary.total_lump_sum_payments > 0 ? " (incl. lump sums)" : "";
+      kpiSavingsMonths.textContent = `${summary.months_saved_vs_baseline} months faster${lumpNote}`;
     } else {
       kpiSavingsMonths.textContent = "Baseline ($0 extra prepayment)";
     }
 
-    // 2. Cap / Regulatory Status Strip
+    // 2. Cap / Regulatory & Fee Status Strips
     const capSourceLabel =
       caps.binding_cap_source === "regulatory_ceiling"
         ? `WA CLA Usury Ceiling (${config.regulatory_ceiling.toFixed(2)}%)`
@@ -444,10 +839,38 @@ function main() {
       previous_balance: "Previous Balance",
     };
 
-    capStatusStrip.dataset.capHit = String(caps.cap_hit);
-    capStatusStrip.textContent = caps.cap_hit
-      ? `Active Ceiling: ${capSourceLabel} clamped variable APR starting Month ${caps.first_cap_month}. Convention: ${methodLabels[config.balance_method]} · ${config.year_basis}-day DPR.`
-      : `Effective Ceiling: ${capSourceLabel} (not exceeded in this projection). Convention: ${methodLabels[config.balance_method]} · ${config.year_basis}-day DPR.`;
+    const clipNote =
+      Array.isArray(clipped) && clipped.length > 0
+        ? ` [!] Clipped ${clipped.length} draw(s) at ${moneyWholeFmt.format(config.credit_limit)} credit limit.`
+        : "";
+
+    capStatusStrip.dataset.capHit = String(caps.cap_hit || clipNote.length > 0);
+    capStatusStrip.textContent =
+      (caps.cap_hit
+        ? `Active Ceiling: ${capSourceLabel} clamped variable APR starting Month ${caps.first_cap_month}. Convention: ${methodLabels[config.balance_method]} · ${config.year_basis}-day DPR.`
+        : `Effective Ceiling: ${capSourceLabel} (not exceeded in this projection). Convention: ${methodLabels[config.balance_method]} · ${config.year_basis}-day DPR.`) +
+      clipNote;
+
+    if (summary.total_fees > 0) {
+      const yearsAssessed = Math.ceil(summary.actual_months_to_payoff / 12);
+      const annualPart =
+        config.annual_fee > 0
+          ? `${moneyFmt.format(config.annual_fee * yearsAssessed)} annual (${yearsAssessed} yrs)`
+          : "$0.00 annual";
+      const closurePart =
+        config.early_closure_fee > 0
+          ? summary.early_closure_fee_triggered
+            ? `${moneyFmt.format(config.early_closure_fee)} early closure (triggered <= Mo ${config.early_closure_months})`
+            : `$0.00 early closure (paid off > Mo ${config.early_closure_months})`
+          : "$0.00 early closure";
+      feeSummaryStrip.hidden = false;
+      feeSummaryStrip.dataset.earlyClosure = String(summary.early_closure_fee_triggered);
+      feeSummaryStrip.textContent =
+        `Non-APR Fee Ledger (separate from Reg Z APR): Closing ${moneyFmt.format(config.closing_costs)} + ${annualPart} + ${closurePart} = ${moneyFmt.format(summary.total_fees)} fees · Total Cost w/ Fees: ${moneyFmt.format(summary.total_cost_with_fees)}.`;
+    } else {
+      feeSummaryStrip.hidden = true;
+      feeSummaryStrip.textContent = "";
+    }
 
     // 3. Charts
     renderCharts({
@@ -455,14 +878,19 @@ function main() {
       paymentEl: chartPaymentEl,
       interestEl: chartInterestEl,
       result,
+      startYearMonth: startYM,
     });
 
     // 4. Milestones
     milestonesList.replaceChildren();
     for (const ms of milestones) {
       const li = el("li", "milestone-card");
+      const calLabel = formatLoanMonthDate(startYM, ms.month);
+      const monthHeading = calLabel
+        ? `Month ${ms.month} · ${calLabel} · Year ${Math.ceil(ms.month / 12)}`
+        : `Month ${ms.month} · Year ${Math.ceil(ms.month / 12)}`;
       li.append(
-        el("span", "milestone-month", `Month ${ms.month} · Year ${Math.ceil(ms.month / 12)}`),
+        el("span", "milestone-month", monthHeading),
         el("span", "milestone-title", ms.event),
       );
       let detail = "";
@@ -472,6 +900,10 @@ function main() {
         detail = `Resets to ${ms.next_rate.toFixed(2)}% APR`;
       } else if (ms.event === "Phase Shift: Repayment Period Begins") {
         detail = `Payment shock: +${moneyFmt.format(ms.payment_shock_amount)} (+${ms.payment_shock_pct.toFixed(1)}%)`;
+      } else if (ms.event === "Scheduled Draw") {
+        detail = `Draw +${moneyFmt.format(ms.amount)}${ms.label ? ` · ${ms.label}` : ""}`;
+      } else if (ms.event === "One-Time Lump Sum") {
+        detail = `Lump paydown −${moneyFmt.format(ms.amount)}${ms.label ? ` · ${ms.label}` : ""}`;
       } else if (ms.event === "Loan Payoff") {
         detail = "Balance reaches $0.00";
       }
@@ -482,9 +914,13 @@ function main() {
     // 5. Schedule table & count
     renderScheduleSection(result);
 
-    // 6. Comparison strip & preset buttons
+    // 6. Comparisons, print banner, badges, CLTV & presets
     renderComparisonStrip();
+    renderHeloanComparison(result);
+    renderPrintSummaryBanner(result);
     renderBuiltinPills();
+    updateDrawerBadges(activeParams, result);
+    updateCltvReadout();
   }
 
   function renderScheduleSection(result) {
@@ -493,6 +929,7 @@ function main() {
       result,
       viewMode: scheduleView,
       phaseFilter,
+      startYearMonth: activeParams.start_year_month,
     });
 
     const filteredMonthly =
@@ -516,11 +953,12 @@ function main() {
     const principal = Number(principalEl.value);
     const limit = Number(limitEl.value);
     updateUtilizationMeter(principal, limit);
+    syncPrincipalRangeBounds(principal, limit);
 
     let hasError = false;
     let firstInvalidCtrl = null;
     form.querySelectorAll("input, select, textarea").forEach((ctrl) => {
-      if (ctrl.disabled) return;
+      if (!validation.isMainControl(ctrl) || ctrl.disabled) return;
       if (ctrl.validity.valid) {
         if (ctrl !== principalEl && ctrl !== customRatesEl) {
           ctrl.classList.remove("user-invalid-fallback");
@@ -598,6 +1036,20 @@ function main() {
       rememberedIntroApr = introApr;
     }
 
+    const totalMonths = drawMonths + repayMonths;
+    const validExistingEvents = (activeParams.cash_flow_events ?? []).filter(
+      (ev) =>
+        ev.month >= 1 &&
+        ev.month <= totalMonths &&
+        (ev.event_type !== "draw" || ev.month <= drawMonths),
+    );
+
+    const startMonth = startMonthEl.value;
+    const startYearRaw = Math.trunc(Number(startYearEl.value || 2026));
+    const startYearMonth = startMonth
+      ? `${String(startYearRaw).padStart(4, "0")}-${startMonth}`
+      : null;
+
     const candidate = {
       initial_principal: principal,
       credit_limit: limit,
@@ -616,6 +1068,19 @@ function main() {
       annual_rate_step: Number(annualStepEl.value),
       custom_rates: customRates,
       custom_rates_mode: customMode,
+      draw_payment_mode: drawModeEl.value,
+      draw_min_payment_pct: Number(drawMinPctEl.value || 1.0),
+      draw_min_payment_floor: Number(drawMinFloorEl.value || 0),
+      cash_flow_events: validExistingEvents,
+      closing_costs: Number(closingCostsEl.value || 0),
+      annual_fee: Number(annualFeeEl.value || 0),
+      early_closure_fee: Number(earlyClosureFeeEl.value || 0),
+      early_closure_months: Math.trunc(Number(earlyClosureMonthsEl.value || 36)),
+      start_year_month: startYearMonth,
+      heloan_enabled: heloanEnabledEl.checked,
+      heloan_apr: Number(heloanAprEl.value || 7.5),
+      heloan_term_years: Math.trunc(Number(heloanTermYearsEl.value || 15)),
+      heloan_closing_costs: Number(heloanClosingCostsEl.value || 0),
     };
 
     try {
@@ -634,6 +1099,7 @@ function main() {
       lastValidResult = calculateHelocTrajectory(activeParams);
       validationBanner.hidden = true;
       renderDashboard(lastValidResult);
+      renderEventsList();
       return;
     }
     const check = validateAndReadForm({ isCommit: false });
@@ -646,29 +1112,117 @@ function main() {
     activeBuiltinId = detectMatchingBuiltin(activeParams);
     lastValidResult = check.result;
     renderDashboard(lastValidResult);
+    renderEventsList();
   }
 
-  // Event listeners
+  function runGoalSolver(targetMonths) {
+    const cfg = validateConfig(activeParams);
+    const totalMonths = cfg.draw_period_months + cfg.repayment_period_months;
+    const clampedTarget = Math.max(1, Math.min(totalMonths, Math.trunc(targetMonths)));
+    const prime = generatePrimeRates({
+      totalMonths,
+      scenario: activeParams.rate_scenario,
+      basePrime: activeParams.prime_rate,
+      annualStep: activeParams.annual_rate_step,
+      customRates: activeParams.custom_rates,
+    });
+
+    const solved = solveMonthlyPrepayment(cfg, clampedTarget, prime);
+    solverResultEl.hidden = false;
+
+    if (!solved.achievable) {
+      solverResultEl.dataset.warning = "true";
+      solverResultTextEl.textContent = solved.reason ?? "Target cannot be achieved.";
+      applySolverBtn.hidden = true;
+      badgeSolver.textContent = "Blocked";
+      return;
+    }
+
+    solverResultEl.dataset.warning = "false";
+    const payDate = formatLoanMonthDate(activeParams.start_year_month, solved.actual_months_to_payoff);
+    const payStr = payDate
+      ? `Mo ${solved.actual_months_to_payoff} (${payDate})`
+      : `Mo ${solved.actual_months_to_payoff}`;
+
+    if (solved.already_met) {
+      solverResultTextEl.textContent = `Target reached with $0/mo extra prepayment (payoff ${payStr}, interest ${moneyFmt.format(solved.total_interest_paid)}, shock ${moneyFmt.format(solved.payment_shock_amount)}).`;
+      applySolverBtn.hidden = activeParams.monthly_prepayment === 0;
+      applySolverBtn.dataset.solvedAmount = "0";
+      applySolverBtn.textContent = "Apply $0/mo";
+      badgeSolver.textContent = "$0/mo needed";
+      return;
+    }
+
+    solverResultTextEl.textContent = `Requires ${moneyFmt.format(solved.required_monthly_prepayment)}/mo extra -> payoff ${payStr}, total interest ${moneyFmt.format(solved.total_interest_paid)}, shock ${moneyFmt.format(solved.payment_shock_amount)}.`;
+    applySolverBtn.hidden = false;
+    applySolverBtn.dataset.solvedAmount = String(solved.required_monthly_prepayment);
+    applySolverBtn.textContent = `Apply ${moneyFmt.format(solved.required_monthly_prepayment)}/mo`;
+    badgeSolver.textContent = `${moneyWholeFmt.format(solved.required_monthly_prepayment)}/mo`;
+  }
+
+  // Main form listeners (skip helper inputs for main simulation triggers)
   form.addEventListener("input", (e) => {
-    if (e.target === prepayEl) {
+    const t = e.target;
+    if (t === principalEl) {
+      const num = Number(principalEl.value);
+      if (Number.isFinite(num) && num >= 0) {
+        syncRangeStyles(principalRangeEl, num, moneyWholeFmt.format(num));
+      }
+    } else if (t === principalRangeEl) {
+      principalEl.value = principalRangeEl.value;
+      syncRangeStyles(
+        principalRangeEl,
+        principalRangeEl.value,
+        moneyWholeFmt.format(Number(principalRangeEl.value)),
+      );
+    } else if (t === prepayEl) {
       const num = Number(prepayEl.value);
       if (Number.isFinite(num) && num >= 0) {
-        prepayRangeEl.value = String(Math.min(2500, num));
+        syncRangeStyles(prepayRangeEl, num, `${moneyWholeFmt.format(num)} per month`);
       }
-    } else if (e.target === prepayRangeEl) {
+    } else if (t === prepayRangeEl) {
       prepayEl.value = prepayRangeEl.value;
+      syncRangeStyles(
+        prepayRangeEl,
+        prepayRangeEl.value,
+        `${moneyWholeFmt.format(Number(prepayRangeEl.value))} per month`,
+      );
+    } else if (t === primeEl) {
+      const num = Number(primeEl.value);
+      if (Number.isFinite(num) && num >= 0) {
+        syncRangeStyles(primeRangeEl, num, `${num}%`);
+      }
+    } else if (t === primeRangeEl) {
+      primeEl.value = primeRangeEl.value;
+      syncRangeStyles(primeRangeEl, primeRangeEl.value, `${primeRangeEl.value}%`);
+    } else if (!validation.isMainControl(t)) {
+      return;
     }
     runAndRender(false);
   });
 
   form.addEventListener("change", (e) => {
-    if (e.target.name === "rate_scenario") {
-      updateConditionalVisibility(e.target.value);
+    const t = e.target;
+    if (t !== principalRangeEl && t !== prepayRangeEl && t !== primeRangeEl && !validation.isMainControl(t)) {
+      return;
     }
-    if (e.target === introEnabledEl) {
+
+    if (t.name === "rate_scenario") {
+      updateConditionalVisibility(t.value);
+    }
+    if (t === introEnabledEl) {
       updateIntroFieldStates();
     }
-    if (e.target === drawUnitEl) {
+    if (t === drawModeEl) {
+      updateDrawModeStates();
+    }
+    if (t === heloanEnabledEl) {
+      updateHeloanFieldStates();
+    }
+    if (t === startMonthEl) {
+      updateStartDateFieldState();
+    }
+    if (t === drawUnitEl) {
       const cur = Number(drawDurEl.value);
       if (Number.isFinite(cur) && cur >= 1) {
         drawDurEl.value =
@@ -677,7 +1231,7 @@ function main() {
             : String(Math.min(600, Math.round(cur * 12)));
       }
     }
-    if (e.target === repayUnitEl) {
+    if (t === repayUnitEl) {
       const cur = Number(repayDurEl.value);
       if (Number.isFinite(cur) && cur >= 1) {
         repayDurEl.value =
@@ -697,10 +1251,144 @@ function main() {
     activeBuiltinId = detectMatchingBuiltin(activeParams);
     lastValidResult = check.result;
     renderDashboard(lastValidResult);
+    renderEventsList();
   });
 
+  // CLTV Helper events
+  [homeValueEl, firstMortgageEl, maxCltvEl].forEach((input) => {
+    input.addEventListener("input", updateCltvReadout);
+    input.addEventListener("change", updateCltvReadout);
+  });
+
+  applyCltvLimitBtn.addEventListener("click", () => {
+    const cltv = updateCltvReadout();
+    if (!cltv || cltv.max_heloc_limit <= 0) return;
+    const newLimit = cltv.max_heloc_limit;
+    const clampedPrincipal = Math.min(activeParams.initial_principal, newLimit);
+    limitEl.value = String(newLimit);
+    principalEl.value = String(clampedPrincipal);
+    activeParams = {
+      ...activeParams,
+      credit_limit: newLimit,
+      initial_principal: clampedPrincipal,
+    };
+    activeBuiltinId = detectMatchingBuiltin(activeParams);
+    syncPrincipalRangeBounds(clampedPrincipal, newLimit);
+    updateUtilizationMeter(clampedPrincipal, newLimit);
+    runAndRender(true);
+    announcer.announce(`Applied CLTV eligible credit limit of ${moneyWholeFmt.format(newLimit)}.`);
+  });
+
+  // Goal Solver events
+  solveGoalBtn.addEventListener("click", () => {
+    const raw = Math.trunc(Number(goalTargetValEl.value));
+    if (!Number.isFinite(raw) || raw < 1) {
+      solverResultEl.hidden = false;
+      solverResultEl.dataset.warning = "true";
+      solverResultTextEl.textContent = "Enter a target horizon of 1 or more.";
+      applySolverBtn.hidden = true;
+      return;
+    }
+    const targetMonths = goalTargetUnitEl.value === "years" ? raw * 12 : raw;
+    runGoalSolver(targetMonths);
+  });
+
+  solveZeroShockBtn.addEventListener("click", () => {
+    const drawMonths = lastValidResult.config.draw_period_months;
+    if (drawMonths % 12 === 0) {
+      goalTargetUnitEl.value = "years";
+      goalTargetValEl.value = String(drawMonths / 12);
+    } else {
+      goalTargetUnitEl.value = "months";
+      goalTargetValEl.value = String(drawMonths);
+    }
+    runGoalSolver(drawMonths);
+  });
+
+  applySolverBtn.addEventListener("click", () => {
+    const amount = Number(applySolverBtn.dataset.solvedAmount);
+    if (!Number.isFinite(amount) || amount < 0) return;
+    prepayEl.value = String(amount);
+    syncRangeStyles(prepayRangeEl, amount, `${moneyWholeFmt.format(amount)} per month`);
+    activeParams = { ...activeParams, monthly_prepayment: amount };
+    activeBuiltinId = detectMatchingBuiltin(activeParams);
+    runAndRender(true);
+    announcer.announce(`Applied solved monthly prepayment of ${moneyFmt.format(amount)}.`);
+  });
+
+  // Planned Draws & Lump Sums helper events
+  const addScheduledEvent = (ev) => {
+    const totalMonths = activeParams.draw_period_months + activeParams.repayment_period_months;
+    if (!Number.isInteger(ev.month) || ev.month < 1 || ev.month > totalMonths) {
+      eventDraftErrorEl.hidden = false;
+      eventDraftErrorEl.textContent = `Event month must be between 1 and ${totalMonths}.`;
+      return false;
+    }
+    if (ev.event_type === "draw" && ev.month > activeParams.draw_period_months) {
+      eventDraftErrorEl.hidden = false;
+      eventDraftErrorEl.textContent = `Scheduled draws must occur during the draw period (Months 1–${activeParams.draw_period_months}).`;
+      return false;
+    }
+    if (!Number.isFinite(ev.amount) || ev.amount <= 0) {
+      eventDraftErrorEl.hidden = false;
+      eventDraftErrorEl.textContent = "Amount must be greater than $0.";
+      return false;
+    }
+    eventDraftErrorEl.hidden = true;
+    const nextEvents = [...(activeParams.cash_flow_events ?? []), ev].sort((a, b) => a.month - b.month);
+    activeParams = { ...activeParams, cash_flow_events: nextEvents };
+    activeBuiltinId = detectMatchingBuiltin(activeParams);
+    runAndRender(true);
+    return true;
+  };
+
+  addEventBtn.addEventListener("click", () => {
+    const ev = {
+      event_type: eventTypeEl.value,
+      month: Math.trunc(Number(eventMonthEl.value)),
+      amount: Number(eventAmountEl.value),
+      label: eventLabelEl.value.trim().slice(0, 60),
+    };
+    if (addScheduledEvent(ev)) {
+      eventLabelEl.value = "";
+      announcer.announce(`Added scheduled ${ev.event_type === "draw" ? "draw" : "lump sum"} in month ${ev.month}.`);
+    }
+  });
+
+  document.querySelectorAll("[data-sample-event]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const kind = btn.getAttribute("data-sample-event");
+      const drawMos = activeParams.draw_period_months;
+      const totMos = drawMos + activeParams.repayment_period_months;
+      if (kind === "reno") {
+        addScheduledEvent({
+          event_type: "draw",
+          month: Math.min(14, drawMos),
+          amount: 15000,
+          label: "Kitchen Reno",
+        });
+      } else {
+        addScheduledEvent({
+          event_type: "lump_sum",
+          month: Math.min(12, totMos),
+          amount: 5000,
+          label: "Annual Bonus",
+        });
+      }
+    });
+  });
+
+  clearEventsBtn.addEventListener("click", () => {
+    activeParams = { ...activeParams, cash_flow_events: [] };
+    activeBuiltinId = detectMatchingBuiltin(activeParams);
+    eventDraftErrorEl.hidden = true;
+    runAndRender(true);
+    announcer.announce("Cleared all scheduled draws and lump sums.");
+  });
+
+  // Toolbar, compare, share & export
   resetBtn.addEventListener("click", () => {
-    activeParams = { ...DEFAULT_SCENARIO };
+    activeParams = { ...DEFAULT_SCENARIO, cash_flow_events: [] };
     activeBuiltinId = "blueprint_rising";
     populateForm(activeParams);
     runAndRender(true);
@@ -751,6 +1439,10 @@ function main() {
     );
   });
 
+  printBtn.addEventListener("click", () => {
+    window.print();
+  });
+
   viewAnnualBtn.addEventListener("click", () => {
     scheduleView = "annual";
     viewAnnualBtn.setAttribute("aria-pressed", "true");
@@ -771,7 +1463,9 @@ function main() {
   });
 
   downloadCsvBtn.addEventListener("click", () => {
-    const csv = recordsToCsv(lastValidResult.records);
+    const csv = recordsToCsv(lastValidResult.records, {
+      startYearMonth: activeParams.start_year_month,
+    });
     triggerCsvDownload(csv, "heloc_amortization_schedule.csv");
     announcer.announce("Downloaded HELOC monthly amortization schedule CSV.");
   });

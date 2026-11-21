@@ -1,5 +1,10 @@
 """Core computational modules for HELOC simulation."""
 
+from heloc.core.analytics import (
+    compare_fixed_home_equity_loan,
+    estimate_borrowing_power,
+    solve_monthly_prepayment,
+)
 from heloc.core.formulas import (
     amortized_monthly_installment,
     average_daily_balance,
@@ -8,6 +13,8 @@ from heloc.core.formulas import (
 )
 from heloc.core.models import (
     BalanceMethod,
+    CashFlowEvent,
+    DrawPaymentMode,
     HelocConfig,
     MonthlyRecord,
     RateScenarioType,
@@ -23,6 +30,8 @@ from heloc.core.simulator import simulate_heloc
 
 __all__ = [
     "BalanceMethod",
+    "CashFlowEvent",
+    "DrawPaymentMode",
     "YearBasis",
     "RateScenarioType",
     "HelocConfig",
@@ -35,5 +44,8 @@ __all__ = [
     "get_effective_rate",
     "generate_prime_rates",
     "simulate_heloc",
+    "estimate_borrowing_power",
+    "solve_monthly_prepayment",
+    "compare_fixed_home_equity_loan",
 ]
 

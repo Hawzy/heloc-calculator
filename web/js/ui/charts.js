@@ -1,7 +1,9 @@
 /**
- * Custom interactive inline SVG charts for HELOC balance, payment shock, and cumulative interest.
- * Built via DOM/SVG element creation with zero external libraries or innerHTML.
+ * Custom interactive inline SVG charts for HELOC balance, payment shock, and cumulative interest
+ * with synchronized 3-chart hover/keyboard inspection and scheduled event markers.
  */
+
+import { formatLoanMonthDate } from "./dates.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -132,12 +134,14 @@ function createInteractiveChart({
   drawPeriodMonths,
   introMonth,
   repayMonth,
+  eventMarkers = [],
   series,
   legendItems,
   betweenArea = null,
   annotationCallout = null,
   bandLabelPosition = "top",
   formatReadout,
+  onMonthChange = null,
 }) {
   containerEl.replaceChildren();
 
@@ -289,6 +293,49 @@ function createInteractiveChart({
         class: "chart-savings-area",
       }),
     );
+  }
+
+  // Scheduled cash-flow event vertical guides (drawn behind data series)
+  if (Array.isArray(eventMarkers) && eventMarkers.length > 0) {
+    const seenByMonthType = new Set();
+    for (const ev of eventMarkers) {
+      if (ev.month < 1 || ev.month > maxMonth) continue;
+      const key = `${ev.month}:${ev.event_type}`;
+      if (seenByMonthType.has(key)) continue;
+      seenByMonthType.add(key);
+
+      const ex = xForMonth(ev.month);
+      const isDrawEv = ev.event_type === "draw";
+      svg.append(
+        svgEl("line", {
+          x1: ex,
+          y1: pad.top,
+          x2: ex,
+          y2: yBase,
+          class: `chart-event-line ${isDrawEv ? "chart-event--draw" : "chart-event--lump"}`,
+        }),
+      );
+      svg.append(
+        svgEl("circle", {
+          cx: ex,
+          cy: pad.top + 8,
+          r: 6.5,
+          class: `chart-event-badge ${isDrawEv ? "chart-event--draw" : "chart-event--lump"}`,
+        }),
+      );
+      svg.append(
+        svgEl(
+          "text",
+          {
+            x: ex,
+            y: pad.top + 11.5,
+            "text-anchor": "middle",
+            class: "chart-event-symbol",
+          },
+          isDrawEv ? "+" : "−",
+        ),
+      );
+    }
   }
 
   // Series paths
@@ -457,7 +504,7 @@ function createInteractiveChart({
   let activeMonth = Math.min(maxMonth, repayMonth ?? maxMonth);
   if (activeMonth < 1) activeMonth = 1;
 
-  const setActiveMonth = (monthNum) => {
+  const setActiveMonth = (monthNum, { broadcast = false } = {}) => {
     const clamped = Math.max(1, Math.min(maxMonth, Math.round(monthNum)));
     activeMonth = clamped;
     const x = xForMonth(clamped);
@@ -482,6 +529,10 @@ function createInteractiveChart({
     readoutEl.textContent = readoutText;
     hitRect.setAttribute("aria-valuenow", String(clamped));
     hitRect.setAttribute("aria-valuetext", readoutText);
+
+    if (broadcast && typeof onMonthChange === "function") {
+      onMonthChange(clamped);
+    }
   };
 
   const monthFromClientX = (clientX) => {
@@ -494,49 +545,52 @@ function createInteractiveChart({
   };
 
   hitRect.addEventListener("pointermove", (e) => {
-    setActiveMonth(monthFromClientX(e.clientX));
+    setActiveMonth(monthFromClientX(e.clientX), { broadcast: true });
   });
 
   hitRect.addEventListener("click", (e) => {
-    setActiveMonth(monthFromClientX(e.clientX));
+    setActiveMonth(monthFromClientX(e.clientX), { broadcast: true });
   });
 
   hitRect.addEventListener("keydown", (e) => {
     const step = e.shiftKey ? 12 : 1;
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      setActiveMonth(activeMonth + step);
+      setActiveMonth(activeMonth + step, { broadcast: true });
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      setActiveMonth(activeMonth - step);
+      setActiveMonth(activeMonth - step, { broadcast: true });
     } else if (e.key === "Home") {
       e.preventDefault();
-      setActiveMonth(1);
+      setActiveMonth(1, { broadcast: true });
     } else if (e.key === "End") {
       e.preventDefault();
-      setActiveMonth(maxMonth);
+      setActiveMonth(maxMonth, { broadcast: true });
     }
   });
 
-  setActiveMonth(activeMonth);
+  setActiveMonth(activeMonth, { broadcast: false });
   containerEl.append(headerRow, readoutEl, svg);
+
+  return { maxMonth, setActiveMonth };
 }
 
 /**
- * Render all three HELOC interactive trajectory SVG charts.
+ * Render all three HELOC interactive trajectory SVG charts with synchronized scrubbing.
  *
  * @param {{
  *   balanceEl: HTMLElement,
  *   paymentEl: HTMLElement,
  *   interestEl: HTMLElement,
- *   result: ReturnType<import('../engine/index.js').calculateHelocTrajectory>
+ *   result: ReturnType<import('../engine/index.js').calculateHelocTrajectory>,
+ *   startYearMonth?: string | null
  * }} opts
  */
-export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
+export function renderCharts({ balanceEl, paymentEl, interestEl, result, startYearMonth = null }) {
   const { config, summary, records, baseline_records: baseRecords } = result;
   if (!records || records.length === 0) return;
 
-  const hasPrepay = config.monthly_prepayment > 0;
+  const hasPrepay = config.monthly_prepayment > 0 || summary.total_lump_sum_payments > 0;
   const maxMonth = Math.max(records.length, hasPrepay ? baseRecords.length : records.length);
   const introMonth =
     config.intro_apr !== null && summary.actual_months_to_payoff > config.intro_duration_months
@@ -549,6 +603,50 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
 
   const activeByMonth = new Map(records.map((r) => [r.month, r]));
   const baseByMonth = new Map(baseRecords.map((r) => [r.month, r]));
+  const eventsByMonth = new Map();
+  for (const ev of config.cash_flow_events ?? []) {
+    const list = eventsByMonth.get(ev.month) ?? [];
+    list.push(ev);
+    eventsByMonth.set(ev.month, list);
+  }
+
+  const formatMonthPrefix = (m, year, phase = null) => {
+    const cal = formatLoanMonthDate(startYearMonth, m);
+    const calPart = cal ? ` · ${cal}` : "";
+    const metaParts = [];
+    if (year) metaParts.push(`Yr ${year}`);
+    if (phase) metaParts.push(phase);
+    const meta = metaParts.length > 0 ? ` (${metaParts.join(", ")})` : "";
+    return `Mo ${m}${calPart}${meta}`;
+  };
+
+  const formatEventsSuffix = (m) => {
+    const list = eventsByMonth.get(m);
+    if (!list || list.length === 0) return "";
+    const tags = list.map((ev) => {
+      const sign = ev.event_type === "draw" ? "+" : "−";
+      const lbl = ev.label ? ` ${ev.label}` : "";
+      return `[${sign}${currencyFmt.format(ev.amount)}${lbl}]`;
+    });
+    return ` · ${tags.join(" ")}`;
+  };
+
+  const chartHandles = [];
+  let isSyncing = false;
+  const syncFromChart = (sourceIndex, monthNum) => {
+    if (isSyncing) return;
+    isSyncing = true;
+    try {
+      for (let i = 0; i < chartHandles.length; i += 1) {
+        if (i !== sourceIndex && chartHandles[i]) {
+          const targetMonth = Math.min(monthNum, chartHandles[i].maxMonth);
+          chartHandles[i].setActiveMonth(targetMonth, { broadcast: false });
+        }
+      }
+    } finally {
+      isSyncing = false;
+    }
+  };
 
   // 1. Remaining Balance vs. Baseline
   const activeBalPoints = records.map((r) => ({ month: r.month, value: r.ending_balance }));
@@ -557,6 +655,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     : [];
   const balMaxRaw = Math.max(
     config.initial_principal,
+    summary.peak_balance ?? 0,
     ...records.map((r) => r.starting_balance),
     ...baseBalPoints.map((p) => p.value),
   );
@@ -565,7 +664,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     ...(hasPrepay
       ? [
           {
-            label: "$0-Prepayment Baseline",
+            label: "$0-Prepay Baseline",
             points: baseBalPoints,
             color: "var(--chart-muted)",
             dashed: true,
@@ -582,7 +681,10 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     },
   ];
 
-  createInteractiveChart({
+  const hasDrawEvent = (config.cash_flow_events ?? []).some((e) => e.event_type === "draw");
+  const hasLumpEvent = (config.cash_flow_events ?? []).some((e) => e.event_type === "lump_sum");
+
+  chartHandles[0] = createInteractiveChart({
     containerEl: balanceEl,
     titleId: "chart-balance-title",
     titleText: "Remaining Principal Balance vs. Zero-Prepayment Baseline",
@@ -594,6 +696,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     drawPeriodMonths: config.draw_period_months,
     introMonth,
     repayMonth,
+    eventMarkers: config.cash_flow_events ?? [],
     bandLabelPosition: "bottom",
     series: balSeries,
     legendItems: [
@@ -601,17 +704,24 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
       ...(hasPrepay
         ? [{ label: "$0-Prepay Baseline", color: "var(--chart-muted)", style: "dashed" }]
         : []),
+      ...(hasDrawEvent
+        ? [{ label: "+Draw Event", color: "var(--chart-cobalt)", style: "dashed" }]
+        : []),
+      ...(hasLumpEvent
+        ? [{ label: "−Lump Sum", color: "var(--chart-emerald)", style: "dashed" }]
+        : []),
     ],
+    onMonthChange: (m) => syncFromChart(0, m),
     formatReadout: (m) => {
       const act = activeByMonth.get(m);
       const base = baseByMonth.get(m);
       if (!act && base) {
-        return `Mo ${m} (Yr ${base.year}) · Paid Off! · Baseline Bal: ${currencyCentFmt.format(base.ending_balance)}`;
+        return `${formatMonthPrefix(m, base.year)} · Paid Off! · Baseline Bal: ${currencyCentFmt.format(base.ending_balance)}`;
       }
-      if (!act) return `Mo ${m}`;
+      if (!act) return formatMonthPrefix(m, Math.ceil(m / 12));
       const basePart =
         hasPrepay && base ? ` · Baseline: ${currencyCentFmt.format(base.ending_balance)}` : "";
-      return `Mo ${act.month} (Yr ${act.year}, ${act.phase}) · Balance: ${currencyCentFmt.format(act.ending_balance)}${basePart} · APR: ${act.effective_apr.toFixed(2)}%`;
+      return `${formatMonthPrefix(act.month, act.year, act.phase)} · Balance: ${currencyCentFmt.format(act.ending_balance)}${basePart} · APR: ${act.effective_apr.toFixed(2)}%${formatEventsSuffix(act.month)}`;
     },
   });
 
@@ -635,7 +745,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
         }
       : null;
 
-  createInteractiveChart({
+  chartHandles[1] = createInteractiveChart({
     containerEl: paymentEl,
     titleId: "chart-payment-title",
     titleText: "Monthly Required Payment vs. Total Monthly Outlay",
@@ -647,6 +757,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     drawPeriodMonths: config.draw_period_months,
     introMonth: introMonth !== null && introMonth < payMaxMonth ? introMonth : null,
     repayMonth,
+    eventMarkers: config.cash_flow_events ?? [],
     bandLabelPosition: "top",
     series: [
       ...(hasPrepay
@@ -671,15 +782,16 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     legendItems: [
       { label: "Required Pmt", color: "var(--chart-amber)", style: "solid" },
       ...(hasPrepay
-        ? [{ label: "Total Pmt (+Prepay)", color: "var(--chart-emerald)", style: "dashed" }]
+        ? [{ label: "Total Pmt (+Extra)", color: "var(--chart-emerald)", style: "dashed" }]
         : []),
     ],
     annotationCallout: shockCallout,
+    onMonthChange: (m) => syncFromChart(1, m),
     formatReadout: (m) => {
       const act = activeByMonth.get(m);
-      if (!act) return `Mo ${m}`;
+      if (!act) return formatMonthPrefix(m, Math.ceil(m / 12));
       const totPart = hasPrepay ? ` · Total: ${currencyCentFmt.format(act.total_payment)}` : "";
-      return `Mo ${act.month} (Yr ${act.year}, ${act.phase}) · Req: ${currencyCentFmt.format(act.required_payment)}${totPart} · APR: ${act.effective_apr.toFixed(2)}%`;
+      return `${formatMonthPrefix(act.month, act.year, act.phase)} · Req: ${currencyCentFmt.format(act.required_payment)}${totPart} · APR: ${act.effective_apr.toFixed(2)}%${formatEventsSuffix(act.month)}`;
     },
   });
 
@@ -704,7 +816,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
 
   const intMaxRaw = Math.max(cumActive, cumBase, summary.total_interest_paid);
 
-  createInteractiveChart({
+  chartHandles[2] = createInteractiveChart({
     containerEl: interestEl,
     titleId: "chart-interest-title",
     titleText: "Cumulative Interest Paid vs. Zero-Prepayment Baseline",
@@ -746,6 +858,7 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
           ]
         : []),
     ],
+    onMonthChange: (m) => syncFromChart(2, m),
     formatReadout: (m) => {
       const actPt = cumActivePoints[m - 1]?.value ?? 0;
       const basePt = cumBasePoints[m - 1]?.value ?? 0;
@@ -753,9 +866,9 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
       const aprStr = rec ? ` · APR: ${rec.effective_apr.toFixed(2)}%` : "";
       if (hasPrepay) {
         const savedSoFar = Math.max(0, basePt - actPt);
-        return `Mo ${m} · Cum. Interest: ${currencyCentFmt.format(actPt)} · Baseline: ${currencyCentFmt.format(basePt)} · Saved: ${currencyCentFmt.format(savedSoFar)}${aprStr}`;
+        return `${formatMonthPrefix(m, rec?.year)} · Cum. Interest: ${currencyCentFmt.format(actPt)} · Baseline: ${currencyCentFmt.format(basePt)} · Saved: ${currencyCentFmt.format(savedSoFar)}${aprStr}`;
       }
-      return `Mo ${m} · Cum. Interest: ${currencyCentFmt.format(actPt)}${aprStr}`;
+      return `${formatMonthPrefix(m, rec?.year)} · Cum. Interest: ${currencyCentFmt.format(actPt)}${aprStr}`;
     },
   });
 }

@@ -15,25 +15,27 @@ Measured after final build edits using Python `pathlib` and `gzip.compress(..., 
 | File | Uncompressed (Bytes) | Gzipped (Bytes) |
 | :--- | ---: | ---: |
 | `web/.nojekyll` | 0 | 20 |
-| `web/index.html` | 28,749 | 6,458 |
-| `web/styles.css` | 35,481 | 6,401 |
-| `web/js/app.js` | 30,058 | 7,514 |
+| `web/index.html` | 48,807 | 9,541 |
+| `web/styles.css` | 44,096 | 7,746 |
+| `web/js/app.js` | 59,220 | 13,677 |
+| `web/js/engine/analytics.js` | 9,192 | 2,541 |
 | `web/js/engine/formulas.js` | 1,923 | 744 |
-| `web/js/engine/index.js` | 511 | 293 |
-| `web/js/engine/models.js` | 5,365 | 1,622 |
+| `web/js/engine/index.js` | 677 | 370 |
+| `web/js/engine/models.js` | 10,099 | 2,603 |
 | `web/js/engine/rates.js` | 2,481 | 938 |
 | `web/js/engine/rounding.js` | 1,858 | 761 |
-| `web/js/engine/simulator.js` | 6,920 | 1,968 |
-| `web/js/engine/trajectory.js` | 7,411 | 2,146 |
-| `web/js/ui/a11y.js` | 7,457 | 1,945 |
-| `web/js/ui/charts.js` | 23,319 | 6,300 |
-| `web/js/ui/csv.js` | 1,974 | 935 |
-| `web/js/ui/presets.js` | 3,439 | 1,141 |
-| `web/js/ui/state.js` | 10,396 | 3,053 |
-| `web/js/ui/table.js` | 7,163 | 2,035 |
+| `web/js/engine/simulator.js` | 11,911 | 3,016 |
+| `web/js/engine/trajectory.js` | 8,310 | 2,404 |
+| `web/js/ui/a11y.js` | 10,398 | 2,752 |
+| `web/js/ui/charts.js` | 27,492 | 7,343 |
+| `web/js/ui/csv.js` | 2,439 | 1,128 |
+| `web/js/ui/dates.js` | 3,905 | 1,231 |
+| `web/js/ui/presets.js` | 3,576 | 1,184 |
+| `web/js/ui/state.js` | 16,777 | 4,475 |
+| `web/js/ui/table.js` | 7,893 | 2,266 |
 | `web/js/ui/theme.js` | 2,768 | 1,023 |
-| **Core JS Engine Subtotal (7 files)** | **26,469 (25.85 KiB)** | **8,472 (8.27 KiB)** |
-| **Total Deployed Site (18 files)** | **177,273 (173.12 KiB)** | **45,297 (44.24 KiB)** |
+| **Core JS Engine Subtotal (8 files)** | **46,451 (45.36 KiB)** | **13,377 (13.06 KiB)** |
+| **Total Deployed Site (20 files)** | **273,822 (267.40 KiB)** | **65,763 (64.22 KiB)** |
 
 ---
 
@@ -41,10 +43,10 @@ Measured after final build edits using Python `pathlib` and `gzip.compress(..., 
 
 | Check | Command | Result | Details |
 | :--- | :--- | :--- | :--- |
-| Python Unit, CLI, Tool & Benchmark Suites | `.venv\Scripts\pytest.exe -v` | **58 passed** (`0` failed) | All 8 `tests/test_*.py` modules passed on Python 3.12.7 |
-| Golden Fixture Drift Check | `.venv\Scripts\python.exe scripts/generate_golden_fixtures.py --check` | **Passed** (exit `0`) | 12 benchmark & edge-case scenarios + 4 formula vector groups verified against live Python engine |
-| Node Parity & UI Utility Suites | `node --test web/tests/parity.test.mjs web/tests/ui-utils.test.mjs` | **15 passed** (`0` failed) | Node `v24.21.0`; `6` parity tests + `9` UI utility/regression tests (including `step="any"` decimal-input regression guard) |
-| Observed Max Parity Delta (Python vs. JS) | `web/tests/parity.test.mjs` | **`$0.0000` / `0.000000%`** | Exact cent and APR agreement across every summary field, annual aggregate, milestone, and monthly row of all 12 golden scenarios (`CI gate <= $0.01` currency, `<= 0.0001%` rate) |
+| Python Unit, CLI, Tool & Benchmark Suites | `.venv\Scripts\pytest.exe -v` | **66 passed** (`0` failed) | All 9 `tests/test_*.py` modules passed on Python 3.12.7 (`58` v1 + `8` v2 suites) |
+| Golden Fixture Drift Check | `.venv\Scripts\python.exe scripts/generate_golden_fixtures.py --check` | **Passed** (exit `0`) | 17 benchmark & edge-case scenarios + 4 formula vector groups + 3 v2 analytics groups (`cltv`, `goal_solver`, `heloan`) verified against live Python engine |
+| Node Parity & UI Utility Suites | `node --test web/tests/parity.test.mjs web/tests/ui-utils.test.mjs` | **19 passed** (`0` failed) | Node `v24.21.0`; `7` parity tests + `12` UI/date/CSV/regression tests |
+| Observed Max Parity Delta (Python vs. JS) | `web/tests/parity.test.mjs` | **`$0.0000` / `0.000000%`** | Exact cent and APR agreement across every summary field, annual aggregate, milestone, and monthly row of all 17 golden scenarios (`CI gate <= $0.01` currency, `<= 0.0001%` rate) and all analytics vectors |
 
 ---
 
@@ -80,3 +82,17 @@ Verified after the QA fixes (`step="any"` decimal inputs, named field error bann
 | **Tablet (`768×1024`)** | `752.67px` (`0` overflow, `0` console errors) | Schedule cleanly switched to `@container (width < 780px)` stacked cards (`thead` hidden). |
 | **Mobile (`390×844`)** | `374.67px` (`0` overflow, `0` console errors) | All 3 SVG charts widened from `229px` to `328.54px` after resetting `<figure>` margins. |
 | **Small Mobile (`320×568`)** | `304.67px` (`0` overflow, `0` console errors) | All 3 SVG charts widened from `159px` to `258.54px`; `#save-preset-btn` stayed single-line (`97.95×48px`); Monthly `Mo 1` stacked card (`249.88×414.04px`) fit cleanly inside `.table-wrapper` (`266.54×454.40px`). |
+
+### v2 Multi-Viewport Verification (`http://127.0.0.1:8787/`)
+Verified across `1440×900`, `768×1024`, `390×844`, and `320×568` with **`0` console errors**, `19` same-origin `200 OK` initial requests, `0` failed requests, and `0` external requests:
+
+- **Collapsed Quick-View & Blueprint Parity:** All 6 `<details>` drawers (`#drawer-cltv`, `#drawer-solver`, `#drawer-events`, `#drawer-draw-heloan`, `#drawer-dates-fees`, `#drawer-advanced`) loaded collapsed (`open === null`), while default KPIs matched Python Blueprint (`$41.25/mo`, `$164.02/mo`, `+$15.06/mo`, `$31,699.80`, `166 mos (13.8 yrs)`, `$134,309.88`).
+- **Linked Sliders & Accessible Popover Toggletips:** Setting `#prime-range` to `7.5` updated `#prime-rate = "7.5"`, `aria-valuetext = "7.5%"`, and total interest to `$36,223.61`. Clicking `button[popovertarget="tip-margin"]` opened `#tip-margin` (`aria-expanded === "true"`) and `Escape` dismissed it cleanly (`aria-expanded === "false"`).
+- **CLTV Borrowing Power Estimator:** `$600k` home / `$350k` mortgage / `85%` max CLTV computed `$160,000` eligible line (`75.0%` limit CLTV, `66.7%` drawn CLTV) and 1-click Apply updated `#credit-limit` to `160000` (`31.3%` utilization).
+- **Target Payoff Goal Solver:** `"Zero Payment Shock"` solved `$416.67/mo` extra prepayment (`Mo 120`, `$20,431.47` interest, `$0.00` shock); clicking Apply updated active KPIs to `$0.00/mo` shock and `120 mos (10.0 yrs)`.
+- **Staged Events, Synchronized Crosshair, Draw Rules, Dates, Fees, HELoan & URL Restore:** Added `+$15k Kitchen Reno` (Mo 14) + `-$5k Annual Bonus` (Mo 12) (`2` `.chart-event-line` markers & milestones); pressing `Home` then `5× ArrowRight` on `#chart-balance` moved all 3 chart readouts to `Mo 6`; enabled `1.5%` balance min rule, Fixed HELoan `7.5% / 15yr` comparison (`$463.51/mo`), Nov `2026` start date (`Est. Dec 2036` & `Yr 1 (Nov 2026–Oct 2027)` rows), and `$650 + $75/yr + $500` fee ledger (`$1,475.00` fees, `$85,516.96` total w/ fees); URL share round-trip restored all state with `#url-warning-banner` hidden.
+- **4-Viewport Zero Overflow (`documentElement.scrollWidth <= innerWidth`):**
+  - `1440×900`: `1424.67px <= 1440px` (SVGs: `923.33px`, `437px`, `437px`)
+  - `768×1024`: `752.67px <= 768px` (SVGs: `673.27px` each)
+  - `390×844`: `374.67px <= 390px` (SVGs: `328.54px` each)
+  - `320×568`: `304.67px <= 320px` (SVGs: `258.54px` each)

@@ -2,7 +2,14 @@
 
 import os
 from typing import Any, Optional
-from heloc.core.models import BalanceMethod, HelocConfig, RateScenarioType, YearBasis
+from heloc.core.models import (
+    BalanceMethod,
+    CashFlowEvent,
+    DrawPaymentMode,
+    HelocConfig,
+    RateScenarioType,
+    YearBasis,
+)
 from heloc.core.rates import generate_prime_rates, get_effective_rate
 from heloc.core.simulator import simulate_heloc
 
@@ -25,13 +32,22 @@ def calculate_heloc_trajectory(
     balance_method: str = "average_daily_balance",
     year_basis: int = 365,
     export_csv_path: Optional[str] = None,
+    draw_payment_mode: str = "interest_only",
+    draw_min_payment_pct: float = 1.0,
+    draw_min_payment_floor: float = 0.0,
+    cash_flow_events: Optional[list[dict[str, Any] | CashFlowEvent]] = None,
+    closing_costs: float = 0.0,
+    annual_fee: float = 0.0,
+    early_closure_fee: float = 0.0,
+    early_closure_months: int = 36,
 ) -> dict[str, Any]:
     """Calculates a comprehensive monthly HELOC amortization and APR trajectory.
 
-    This function simulates both the interest-only revolving draw period and the
-    subsequent fully amortizing repayment period. It accounts for introductory teaser
-    rates, public index variations, Washington Consumer Loan Act usury limits (25% max),
-    payment shock at transition, and principal prepayment savings.
+    This function simulates both the revolving draw period and the subsequent fully
+    amortizing repayment period. It accounts for introductory teaser rates, public index
+    variations, Washington Consumer Loan Act usury limits (25% max), payment shock at
+    transition, optional draw minimum payment rules, scheduled draws/lump sums,
+    non-APR fee totals, and principal prepayment savings.
 
     Args:
         initial_principal: The starting drawn balance on the credit line (e.g., 50000.0).
@@ -51,6 +67,14 @@ def calculate_heloc_trajectory(
         balance_method: 'average_daily_balance', 'adjusted_balance', or 'previous_balance'.
         year_basis: Year denominator convention: 365 or 360.
         export_csv_path: Optional file path to export the complete monthly schedule.
+        draw_payment_mode: 'interest_only', 'pct_of_balance', or 'fixed_floor'.
+        draw_min_payment_pct: Minimum draw payment % of balance when mode is 'pct_of_balance'.
+        draw_min_payment_floor: Minimum draw payment dollar floor ($).
+        cash_flow_events: Optional list of scheduled draw or one-time lump-sum events.
+        closing_costs: Upfront closing/origination costs ($).
+        annual_fee: Recurring annual maintenance fee ($/yr).
+        early_closure_fee: Penalty applied if paid off within early_closure_months ($).
+        early_closure_months: Early closure window in months (default: 36).
 
     Returns:
         dict: A structured summary dictionary containing KPI summaries, lifecycle
@@ -83,6 +107,14 @@ def calculate_heloc_trajectory(
         monthly_prepayment=monthly_prepayment,
         balance_method=BalanceMethod(balance_method.lower()),
         year_basis=YearBasis(year_basis),
+        draw_payment_mode=DrawPaymentMode(draw_payment_mode.lower()),
+        draw_min_payment_pct=draw_min_payment_pct,
+        draw_min_payment_floor=draw_min_payment_floor,
+        cash_flow_events=cash_flow_events or [],
+        closing_costs=closing_costs,
+        annual_fee=annual_fee,
+        early_closure_fee=early_closure_fee,
+        early_closure_months=early_closure_months,
     )
 
     summary, records, df = simulate_heloc(config, prime_schedule)
@@ -144,6 +176,15 @@ def calculate_heloc_trajectory(
             "payment_shock_pct": summary.payment_shock_pct,
             "payment_shock_amount": summary.payment_shock_amount,
         })
+
+    for ev in config.cash_flow_events:
+        if ev.month <= summary.actual_months_to_payoff:
+            milestones.append({
+                "event": "Scheduled Draw" if ev.event_type == "draw" else "One-Time Lump Sum",
+                "month": ev.month,
+                "amount": round(ev.amount, 2),
+                "label": ev.label,
+            })
 
     milestones.append({
         "event": "Loan Payoff",

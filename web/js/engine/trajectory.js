@@ -2,7 +2,7 @@
  * Unified trajectory orchestration mirroring `heloc/tools/trajectory_tool.py`.
  */
 
-import { BalanceMethod, RateScenarioType, validateConfig } from "./models.js";
+import { BalanceMethod, DrawPaymentMode, RateScenarioType, validateConfig } from "./models.js";
 import { generatePrimeRates, getEffectiveRate } from "./rates.js";
 import { pyRound } from "./rounding.js";
 import { simulateHeloc } from "./simulator.js";
@@ -53,6 +53,16 @@ export function calculateHelocTrajectory(params) {
       params.balance_method ?? BalanceMethod.AVERAGE_DAILY_BALANCE,
     ).toLowerCase(),
     year_basis: Number(params.year_basis ?? 365),
+    draw_payment_mode: String(
+      params.draw_payment_mode ?? DrawPaymentMode.INTEREST_ONLY,
+    ).toLowerCase(),
+    draw_min_payment_pct: params.draw_min_payment_pct ?? 1.0,
+    draw_min_payment_floor: params.draw_min_payment_floor ?? 0.0,
+    cash_flow_events: params.cash_flow_events ?? [],
+    closing_costs: params.closing_costs ?? 0.0,
+    annual_fee: params.annual_fee ?? 0.0,
+    early_closure_fee: params.early_closure_fee ?? 0.0,
+    early_closure_months: params.early_closure_months ?? 36,
   });
 
   const totalMonths = config.draw_period_months + config.repayment_period_months;
@@ -74,7 +84,10 @@ export function calculateHelocTrajectory(params) {
     customRates,
   });
 
-  const { summary, records, baselineRecords } = simulateHeloc(config, primeSchedule);
+  const { summary, records, baselineRecords, clippedDraws } = simulateHeloc(
+    config,
+    primeSchedule,
+  );
 
   // Annualized breakdown matching pandas groupby("year").agg(...)
   const annualTrajectory = [];
@@ -160,6 +173,17 @@ export function calculateHelocTrajectory(params) {
     });
   }
 
+  for (const ev of config.cash_flow_events) {
+    if (ev.month <= summary.actual_months_to_payoff) {
+      milestones.push({
+        event: ev.event_type === "draw" ? "Scheduled Draw" : "One-Time Lump Sum",
+        month: ev.month,
+        amount: pyRound(ev.amount, 2),
+        label: ev.label,
+      });
+    }
+  }
+
   milestones.push({
     event: "Loan Payoff",
     month: summary.actual_months_to_payoff,
@@ -203,6 +227,7 @@ export function calculateHelocTrajectory(params) {
     records,
     baseline_records: baselineRecords,
     prime_schedule: primeSchedule,
+    clipped_draws: clippedDraws,
     cap_stats: {
       applied_ceiling: appliedCeiling,
       cap_hit: capHit,

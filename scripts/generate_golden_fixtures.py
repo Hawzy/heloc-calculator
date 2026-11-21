@@ -13,13 +13,25 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from heloc.core.analytics import (
+    compare_fixed_home_equity_loan,
+    estimate_borrowing_power,
+    solve_monthly_prepayment,
+)
 from heloc.core.formulas import (
     amortized_monthly_installment,
     average_daily_balance,
     daily_periodic_rate,
     monthly_finance_charge,
 )
-from heloc.core.models import BalanceMethod, HelocConfig, RateScenarioType, YearBasis
+from heloc.core.models import (
+    BalanceMethod,
+    CashFlowEvent,
+    DrawPaymentMode,
+    HelocConfig,
+    RateScenarioType,
+    YearBasis,
+)
 from heloc.core.rates import generate_prime_rates, get_effective_rate
 from heloc.core.simulator import simulate_heloc
 from heloc.tools.trajectory_tool import calculate_heloc_trajectory
@@ -281,6 +293,128 @@ SCENARIO_DEFINITIONS: list[tuple[str, dict[str, Any]]] = [
             "year_basis": 365,
         },
     ),
+    (
+        "draw_min_pct_1_5_and_floor",
+        {
+            "initial_principal": 50000.0,
+            "credit_limit": 100000.0,
+            "margin": 2.0,
+            "intro_apr": None,
+            "intro_duration_months": 12,
+            "prime_rate": 6.0,
+            "rate_scenario": "flat",
+            "annual_rate_step": 0.5,
+            "custom_rates": None,
+            "draw_period_months": 60,
+            "repayment_period_months": 120,
+            "lifetime_rate_cap": 18.0,
+            "regulatory_ceiling": 25.0,
+            "monthly_prepayment": 0.0,
+            "balance_method": "average_daily_balance",
+            "year_basis": 365,
+            "draw_payment_mode": "pct_of_balance",
+            "draw_min_payment_pct": 1.5,
+            "draw_min_payment_floor": 100.0,
+        },
+    ),
+    (
+        "draw_fixed_floor_500",
+        {
+            "initial_principal": 25000.0,
+            "credit_limit": 50000.0,
+            "margin": 2.0,
+            "intro_apr": None,
+            "intro_duration_months": 12,
+            "prime_rate": 6.0,
+            "rate_scenario": "flat",
+            "annual_rate_step": 0.5,
+            "custom_rates": None,
+            "draw_period_months": 60,
+            "repayment_period_months": 120,
+            "lifetime_rate_cap": 18.0,
+            "regulatory_ceiling": 25.0,
+            "monthly_prepayment": 0.0,
+            "balance_method": "average_daily_balance",
+            "year_basis": 365,
+            "draw_payment_mode": "fixed_floor",
+            "draw_min_payment_pct": 1.0,
+            "draw_min_payment_floor": 500.0,
+        },
+    ),
+    (
+        "staged_draws_and_lump_sums",
+        {
+            "initial_principal": 30000.0,
+            "credit_limit": 100000.0,
+            "margin": 2.0,
+            "intro_apr": None,
+            "intro_duration_months": 12,
+            "prime_rate": 6.5,
+            "rate_scenario": "rising",
+            "annual_rate_step": 0.5,
+            "custom_rates": None,
+            "draw_period_months": 60,
+            "repayment_period_months": 120,
+            "lifetime_rate_cap": 18.0,
+            "regulatory_ceiling": 25.0,
+            "monthly_prepayment": 200.0,
+            "balance_method": "average_daily_balance",
+            "year_basis": 365,
+            "cash_flow_events": [
+                {"month": 14, "amount": 15000.0, "event_type": "draw", "label": "Kitchen Reno"},
+                {"month": 24, "amount": 8000.0, "event_type": "lump_sum", "label": "Annual Bonus"},
+            ],
+        },
+    ),
+    (
+        "reopen_after_zero_and_limit_clip",
+        {
+            "initial_principal": 10000.0,
+            "credit_limit": 25000.0,
+            "margin": 2.0,
+            "intro_apr": None,
+            "intro_duration_months": 12,
+            "prime_rate": 7.0,
+            "rate_scenario": "flat",
+            "annual_rate_step": 0.5,
+            "custom_rates": None,
+            "draw_period_months": 24,
+            "repayment_period_months": 24,
+            "lifetime_rate_cap": 18.0,
+            "regulatory_ceiling": 25.0,
+            "monthly_prepayment": 2500.0,
+            "balance_method": "average_daily_balance",
+            "year_basis": 365,
+            "cash_flow_events": [
+                {"month": 10, "amount": 30000.0, "event_type": "draw", "label": "Oversized Draw"},
+            ],
+        },
+    ),
+    (
+        "fees_with_early_closure",
+        {
+            "initial_principal": 40000.0,
+            "credit_limit": 80000.0,
+            "margin": 2.0,
+            "intro_apr": None,
+            "intro_duration_months": 12,
+            "prime_rate": 7.0,
+            "rate_scenario": "flat",
+            "annual_rate_step": 0.5,
+            "custom_rates": None,
+            "draw_period_months": 60,
+            "repayment_period_months": 120,
+            "lifetime_rate_cap": 18.0,
+            "regulatory_ceiling": 25.0,
+            "monthly_prepayment": 1500.0,
+            "balance_method": "average_daily_balance",
+            "year_basis": 365,
+            "closing_costs": 650.0,
+            "annual_fee": 75.0,
+            "early_closure_fee": 500.0,
+            "early_closure_months": 36,
+        },
+    ),
 ]
 
 
@@ -364,6 +498,14 @@ def _build_scenario_vector(name: str, params: dict[str, Any]) -> dict[str, Any]:
         monthly_prepayment=params["monthly_prepayment"],
         balance_method=BalanceMethod(params["balance_method"]),
         year_basis=YearBasis(params["year_basis"]),
+        draw_payment_mode=DrawPaymentMode(params.get("draw_payment_mode", "interest_only")),
+        draw_min_payment_pct=params.get("draw_min_payment_pct", 1.0),
+        draw_min_payment_floor=params.get("draw_min_payment_floor", 0.0),
+        cash_flow_events=[CashFlowEvent(**ev) for ev in params.get("cash_flow_events", [])],
+        closing_costs=params.get("closing_costs", 0.0),
+        annual_fee=params.get("annual_fee", 0.0),
+        early_closure_fee=params.get("early_closure_fee", 0.0),
+        early_closure_months=params.get("early_closure_months", 36),
     )
 
     summary, records, df = simulate_heloc(config, prime_schedule)
@@ -424,6 +566,16 @@ def _build_scenario_vector(name: str, params: dict[str, Any]) -> dict[str, Any]:
                 "payment_shock_amount": summary.payment_shock_amount,
             }
         )
+    for ev in config.cash_flow_events:
+        if ev.month <= summary.actual_months_to_payoff:
+            milestones.append(
+                {
+                    "event": "Scheduled Draw" if ev.event_type == "draw" else "One-Time Lump Sum",
+                    "month": ev.month,
+                    "amount": round(ev.amount, 2),
+                    "label": ev.label,
+                }
+            )
     milestones.append(
         {
             "event": "Loan Payoff",
@@ -452,6 +604,14 @@ def _build_scenario_vector(name: str, params: dict[str, Any]) -> dict[str, Any]:
             monthly_prepayment=params["monthly_prepayment"],
             balance_method=params["balance_method"],
             year_basis=params["year_basis"],
+            draw_payment_mode=params.get("draw_payment_mode", "interest_only"),
+            draw_min_payment_pct=params.get("draw_min_payment_pct", 1.0),
+            draw_min_payment_floor=params.get("draw_min_payment_floor", 0.0),
+            cash_flow_events=params.get("cash_flow_events"),
+            closing_costs=params.get("closing_costs", 0.0),
+            annual_fee=params.get("annual_fee", 0.0),
+            early_closure_fee=params.get("early_closure_fee", 0.0),
+            early_closure_months=params.get("early_closure_months", 36),
         )
         assert tool_result["summary"] == summary.model_dump(), f"Summary mismatch in {name}"
         assert tool_result["milestones"] == milestones, f"Milestones mismatch in {name}"
@@ -467,11 +627,202 @@ def _build_scenario_vector(name: str, params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _build_analytics_vectors() -> dict[str, Any]:
+    cltv_cases = [
+        {
+            "name": "standard_80_cltv",
+            "inputs": {
+                "home_value": 600000.0,
+                "first_mortgage_balance": 350000.0,
+                "max_cltv_pct": 80.0,
+                "planned_credit_limit": 100000.0,
+                "planned_initial_draw": 50000.0,
+            },
+        },
+        {
+            "name": "high_equity_85_cltv_exceeds",
+            "inputs": {
+                "home_value": 600000.0,
+                "first_mortgage_balance": 350000.0,
+                "max_cltv_pct": 85.0,
+                "planned_credit_limit": 200000.0,
+                "planned_initial_draw": 50000.0,
+            },
+        },
+        {
+            "name": "zero_headroom_underwater",
+            "inputs": {
+                "home_value": 400000.0,
+                "first_mortgage_balance": 350000.0,
+                "max_cltv_pct": 80.0,
+                "planned_credit_limit": 20000.0,
+                "planned_initial_draw": 10000.0,
+            },
+        },
+    ]
+    cltv_vectors = [
+        {"name": c["name"], "inputs": c["inputs"], "expected": estimate_borrowing_power(**c["inputs"])}
+        for c in cltv_cases
+    ]
+
+    blueprint_cfg = HelocConfig(
+        initial_principal=50000.0,
+        credit_limit=100000.0,
+        margin=2.0,
+        intro_apr=0.99,
+        intro_duration_months=12,
+        draw_period_months=120,
+        repayment_period_months=240,
+        lifetime_rate_cap=18.0,
+        regulatory_ceiling=25.0,
+        monthly_prepayment=300.0,
+    )
+    blueprint_prime = generate_prime_rates(360, RateScenarioType.RISING, base_prime=6.0, annual_step=0.5)
+    blueprint_sum, _, _ = simulate_heloc(blueprint_cfg, blueprint_prime)
+
+    stress_cfg = HelocConfig(
+        initial_principal=60000.0,
+        credit_limit=120000.0,
+        margin=2.5,
+        draw_period_months=60,
+        repayment_period_months=120,
+    )
+    stress_prime = generate_prime_rates(180, RateScenarioType.STRESS_TEST, base_prime=6.5)
+    stress_sum, _, _ = simulate_heloc(stress_cfg, stress_prime)
+
+    staged_cfg = HelocConfig(
+        initial_principal=30000.0,
+        credit_limit=100000.0,
+        draw_period_months=60,
+        repayment_period_months=120,
+        cash_flow_events=[CashFlowEvent(month=24, amount=10000.0, event_type="draw", label="Phase 2")],
+    )
+    staged_prime = generate_prime_rates(180, RateScenarioType.FLAT, base_prime=7.0)
+
+    goal_solver_vectors = [
+        {
+            "name": "blueprint_60mo_target",
+            "params": SCENARIO_DEFINITIONS[0][1],
+            "target_months": 60,
+            "expected": solve_monthly_prepayment(blueprint_cfg, 60, blueprint_prime),
+        },
+        {
+            "name": "blueprint_zero_shock_120mo",
+            "params": SCENARIO_DEFINITIONS[0][1],
+            "target_months": 120,
+            "expected": solve_monthly_prepayment(blueprint_cfg, 120, blueprint_prime),
+        },
+        {
+            "name": "already_met_at_zero",
+            "params": {
+                "initial_principal": 10000.0,
+                "credit_limit": 50000.0,
+                "margin": 2.0,
+                "intro_apr": None,
+                "intro_duration_months": 12,
+                "prime_rate": 7.0,
+                "rate_scenario": "flat",
+                "annual_rate_step": 0.5,
+                "custom_rates": None,
+                "draw_period_months": 120,
+                "repayment_period_months": 240,
+                "lifetime_rate_cap": 18.0,
+                "regulatory_ceiling": 25.0,
+                "monthly_prepayment": 0.0,
+                "balance_method": "average_daily_balance",
+                "year_basis": 365,
+                "draw_payment_mode": "fixed_floor",
+                "draw_min_payment_floor": 500.0,
+            },
+            "target_months": 120,
+            "expected": solve_monthly_prepayment(
+                HelocConfig(
+                    initial_principal=10000.0,
+                    credit_limit=50000.0,
+                    draw_period_months=120,
+                    repayment_period_months=240,
+                    draw_payment_mode=DrawPaymentMode.FIXED_FLOOR,
+                    draw_min_payment_floor=500.0,
+                ),
+                120,
+                generate_prime_rates(360, RateScenarioType.FLAT, base_prime=7.0),
+            ),
+        },
+        {
+            "name": "impossible_due_to_later_draw",
+            "params": {
+                "initial_principal": 30000.0,
+                "credit_limit": 100000.0,
+                "margin": 2.0,
+                "intro_apr": None,
+                "intro_duration_months": 12,
+                "prime_rate": 7.0,
+                "rate_scenario": "flat",
+                "annual_rate_step": 0.5,
+                "custom_rates": None,
+                "draw_period_months": 60,
+                "repayment_period_months": 120,
+                "lifetime_rate_cap": 18.0,
+                "regulatory_ceiling": 25.0,
+                "monthly_prepayment": 0.0,
+                "balance_method": "average_daily_balance",
+                "year_basis": 365,
+                "cash_flow_events": [{"month": 24, "amount": 10000.0, "event_type": "draw", "label": "Phase 2"}],
+            },
+            "target_months": 12,
+            "expected": solve_monthly_prepayment(staged_cfg, 12, staged_prime),
+        },
+    ]
+
+    heloan_vectors = [
+        {
+            "name": "heloan_15yr_vs_blueprint",
+            "inputs": {
+                "principal": 50000.0,
+                "fixed_apr": 7.5,
+                "term_months": 180,
+                "fixed_closing_costs": 0.0,
+            },
+            "heloc_summary": blueprint_sum.model_dump(),
+            "expected": compare_fixed_home_equity_loan(50000.0, 7.5, 180, blueprint_sum, 0.0),
+        },
+        {
+            "name": "heloan_10yr_with_fees_vs_stress",
+            "inputs": {
+                "principal": 60000.0,
+                "fixed_apr": 6.5,
+                "term_months": 120,
+                "fixed_closing_costs": 500.0,
+            },
+            "heloc_summary": stress_sum.model_dump(),
+            "expected": compare_fixed_home_equity_loan(60000.0, 6.5, 120, stress_sum, 500.0),
+        },
+        {
+            "name": "heloan_zero_pct_apr",
+            "inputs": {
+                "principal": 24000.0,
+                "fixed_apr": 0.0,
+                "term_months": 24,
+                "fixed_closing_costs": 0.0,
+            },
+            "heloc_summary": blueprint_sum.model_dump(),
+            "expected": compare_fixed_home_equity_loan(24000.0, 0.0, 24, blueprint_sum, 0.0),
+        },
+    ]
+
+    return {
+        "cltv": cltv_vectors,
+        "goal_solver": goal_solver_vectors,
+        "heloan": heloan_vectors,
+    }
+
+
 def generate_payload() -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "formula_vectors": _build_formula_vectors(),
         "scenarios": [_build_scenario_vector(name, params) for name, params in SCENARIO_DEFINITIONS],
+        "analytics_vectors": _build_analytics_vectors(),
     }
 
 

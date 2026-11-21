@@ -2,6 +2,8 @@
  * Client-side CSV export matching the 12-column `MonthlyRecord` schema.
  */
 
+import { formatLoanMonthIso, parseYearMonth } from "./dates.js";
+
 export const CSV_COLUMNS = Object.freeze([
   "month",
   "year",
@@ -31,15 +33,22 @@ function escapeCsvCell(value) {
 
 /**
  * Convert monthly trajectory records into an RFC 4180 CSV string.
+ * Appends `calendar_month` (`YYYY-MM`) only when `startYearMonth` is provided.
  *
  * @param {Array<Record<string, unknown>>} records
+ * @param {{ startYearMonth?: string | null }} [opts]
  * @returns {string}
  */
-export function recordsToCsv(records) {
-  const lines = [CSV_COLUMNS.join(",")];
+export function recordsToCsv(records, { startYearMonth = null } = {}) {
+  const validStart = parseYearMonth(startYearMonth);
+  const cols = validStart ? [...CSV_COLUMNS, "calendar_month"] : CSV_COLUMNS;
+  const lines = [cols.join(",")];
   for (let i = 0; i < records.length; i += 1) {
     const rec = records[i];
-    const row = CSV_COLUMNS.map((col) => {
+    const row = cols.map((col) => {
+      if (col === "calendar_month") {
+        return formatLoanMonthIso(startYearMonth, Number(rec.month));
+      }
       const val = rec[col];
       if (INT_COLS.has(col)) return String(Math.trunc(Number(val)));
       if (TEXT_COLS.has(col)) return escapeCsvCell(val);
