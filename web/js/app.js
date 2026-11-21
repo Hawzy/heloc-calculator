@@ -219,7 +219,7 @@ function main() {
   let lastValidResult = calculateHelocTrajectory(activeParams);
   let savedPresets = loadSavedPresets();
   let activeBuiltinId = null;
-  let rememberedIntroApr = activeParams.intro_apr ?? 0.99;
+  let rememberedIntroApr = activeParams.intro_apr ?? DEFAULT_SCENARIO.intro_apr;
   let scheduleView = "annual";
   let phaseFilter = "all";
   let shareResetTimer = null;
@@ -288,9 +288,9 @@ function main() {
   }
 
   function syncPrincipalRangeBounds(principal, limit) {
-    const maxVal = Number.isFinite(limit) && limit >= 1000 ? limit : 100000;
+    const maxVal = Number.isFinite(limit) && limit >= 1000 ? limit : 350000;
     principalRangeEl.max = String(maxVal);
-    principalRangeEl.step = String(maxVal >= 50000 ? 1000 : 250);
+    principalRangeEl.step = String(maxVal >= 250000 ? 2500 : maxVal >= 50000 ? 1000 : 250);
     const val = Number.isFinite(principal) ? principal : activeParams.initial_principal;
     syncRangeStyles(principalRangeEl, val, moneyWholeFmt.format(Math.max(0, val)));
   }
@@ -1389,10 +1389,10 @@ function main() {
   // Toolbar, compare, share & export
   resetBtn.addEventListener("click", () => {
     activeParams = { ...DEFAULT_SCENARIO, cash_flow_events: [] };
-    activeBuiltinId = "blueprint_rising";
+    activeBuiltinId = "default_terms";
     populateForm(activeParams);
     runAndRender(true);
-    announcer.announce("Reset to Blueprint default scenario.");
+    announcer.announce("Reset to default HELOC terms.");
   });
 
   savePresetBtn.addEventListener("click", () => {

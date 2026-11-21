@@ -280,3 +280,25 @@ test("HTML decimal numeric inputs use step='any' and helper drawers stay collaps
     assert.doesNotMatch(tagMatch[0], /\bopen\b/, `Drawer ${drawerId} must start collapsed`);
   }
 });
+
+test("DEFAULT_SCENARIO matches custom HELOC terms and preserves Blueprint Rising preset", () => {
+  assert.equal(DEFAULT_SCENARIO.credit_limit, 350000);
+  assert.equal(DEFAULT_SCENARIO.intro_apr, 4.49);
+  assert.equal(DEFAULT_SCENARIO.intro_duration_months, 6);
+  assert.equal(DEFAULT_SCENARIO.prime_rate, 7.0);
+  assert.equal(DEFAULT_SCENARIO.margin, 0.24);
+  assert.equal(DEFAULT_SCENARIO.rate_scenario, "flat");
+  assert.equal(DEFAULT_SCENARIO.monthly_prepayment, 0);
+
+  const defRes = calculateHelocTrajectory(DEFAULT_SCENARIO);
+  for (let m = 0; m < 6; m += 1) {
+    assert.equal(defRes.records[m].effective_apr, 4.49);
+  }
+  assert.equal(defRes.records[6].effective_apr, 7.24);
+
+  const blueprintPreset = BUILTIN_PRESETS.find((p) => p.id === "blueprint_rising");
+  assert.ok(blueprintPreset);
+  const bpRes = calculateHelocTrajectory(blueprintPreset.params);
+  assert.equal(bpRes.summary.total_interest_paid, 31699.8);
+  assert.equal(bpRes.summary.actual_months_to_payoff, 166);
+});

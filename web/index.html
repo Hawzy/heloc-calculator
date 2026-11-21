@@ -115,7 +115,7 @@
     <aside class="controls-panel" aria-label="Loan parameters">
       <div class="panel-header">
         <h2 id="params-heading">Loan Parameters</h2>
-        <button type="button" id="reset-btn" class="btn btn-ghost btn-sm">Reset Blueprint</button>
+        <button type="button" id="reset-btn" class="btn btn-ghost btn-sm">Reset Defaults</button>
       </div>
 
       <form id="heloc-form" aria-labelledby="params-heading" novalidate>
@@ -145,8 +145,8 @@
               type="range"
               id="principal-range"
               min="1000"
-              max="100000"
-              step="500"
+              max="350000"
+              step="2500"
               value="50000"
               class="range-slider"
               data-helper-control="true"
@@ -176,9 +176,9 @@
           <div class="utilization-meter">
             <div class="utilization-labels">
               <label for="utilization-bar">Initial Credit Utilization</label>
-              <span id="utilization-text" class="tabular-nums">50.0%</span>
+              <span id="utilization-text" class="tabular-nums">14.3%</span>
             </div>
-            <progress id="utilization-bar" max="100" value="50">50%</progress>
+            <progress id="utilization-bar" max="100" value="14.3">14.3%</progress>
           </div>
 
           <div class="field-split">
@@ -264,7 +264,7 @@
               min="0"
               max="2500"
               step="25"
-              value="300"
+              value="0"
               class="range-slider"
               data-helper-control="true"
             >
@@ -301,7 +301,7 @@
                 min="0"
                 max="20"
                 step="0.25"
-                value="6.0"
+                value="7.0"
                 class="range-slider"
                 data-helper-control="true"
               >
@@ -764,7 +764,7 @@
         <!-- Drawer 6: Introductory Teaser, Caps & Day-Count Conventions (Collapsed by default) -->
         <details id="drawer-advanced" class="advanced-terms">
           <summary>
-            <span>Intro Teaser, Caps &amp; Day-Count <span id="badge-advanced" class="drawer-badge">0.99% · 18% cap · 365d</span></span>
+            <span>Intro Teaser, Caps &amp; Day-Count <span id="badge-advanced" class="drawer-badge">4.49% intro · 18% cap · 365d</span></span>
           </summary>
           <div class="advanced-body">
             <div class="checkbox-field">
