@@ -136,6 +136,7 @@ function createInteractiveChart({
   legendItems,
   betweenArea = null,
   annotationCallout = null,
+  bandLabelPosition = "top",
   formatReadout,
 }) {
   containerEl.replaceChildren();
@@ -155,7 +156,7 @@ function createInteractiveChart({
   const readoutEl = htmlEl("div", "chart-readout");
   readoutEl.setAttribute("aria-live", "off");
 
-  const pad = { top: 32, right: 20, bottom: 34, left: 62 };
+  const pad = { top: 36, right: 16, bottom: 32, left: 56 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
   const yBase = pad.top + plotH;
@@ -177,6 +178,7 @@ function createInteractiveChart({
   svg.append(svgEl("desc", {}, descText));
 
   // Shaded Draw Period region
+  let hasDrawBandPill = false;
   if (drawPeriodMonths >= 1 && maxMonth > 1) {
     const drawEndMonth = Math.min(drawPeriodMonths, maxMonth);
     const bandW = Math.max(0, xForMonth(drawEndMonth) - pad.left);
@@ -190,13 +192,29 @@ function createInteractiveChart({
           class: "chart-draw-band",
         }),
       );
-      if (bandW > 64) {
+      if (bandW > 94) {
+        hasDrawBandPill = true;
+        const pillW = 84;
+        const pillH = 18;
+        const pillX = pad.left + 6;
+        const pillY = bandLabelPosition === "bottom" ? yBase - pillH - 6 : pad.top + 6;
+        svg.append(
+          svgEl("rect", {
+            x: pillX,
+            y: pillY,
+            width: pillW,
+            height: pillH,
+            rx: 4,
+            class: "chart-band-pill",
+          }),
+        );
         svg.append(
           svgEl(
             "text",
             {
-              x: pad.left + 8,
-              y: pad.top + 14,
+              x: pillX + pillW / 2,
+              y: pillY + 13,
+              "text-anchor": "middle",
               class: "chart-band-label",
             },
             "Draw Period",
@@ -323,17 +341,17 @@ function createInteractiveChart({
       month: introMonth,
       label: `Intro Ends (Mo ${introMonth})`,
       className: "chart-marker--intro",
-      yLabelOffset: pad.top - 7,
+      yLabelOffset: pad.top - 8,
     });
   }
   if (repayMonth !== null && repayMonth > 1 && repayMonth <= maxMonth) {
     const closeToIntro =
-      introMonth !== null && Math.abs(xForMonth(repayMonth) - xForMonth(introMonth)) < 125;
+      introMonth !== null && Math.abs(xForMonth(repayMonth) - xForMonth(introMonth)) < 135;
     markerSpecs.push({
       month: repayMonth,
       label: `Repay Starts (Mo ${repayMonth})`,
       className: "chart-marker--repay",
-      yLabelOffset: closeToIntro ? pad.top - 19 : pad.top - 7,
+      yLabelOffset: closeToIntro ? pad.top - 22 : pad.top - 8,
     });
   }
 
@@ -366,20 +384,45 @@ function createInteractiveChart({
 
   // Optional Shock Callout pill
   if (annotationCallout && annotationCallout.month <= maxMonth) {
+    const labelStr = annotationCallout.label;
+    const pillW = Math.min(plotW - 8, Math.max(114, Math.round(labelStr.length * 7.1 + 16)));
+    const pillH = 20;
     const cx = xForMonth(annotationCallout.month);
-    const cy = Math.max(pad.top + 22, yForVal(annotationCallout.value) - 14);
-    const anchor = cx > pad.left + plotW * 0.65 ? "end" : "start";
-    const tx = anchor === "end" ? cx - 8 : cx + 8;
+    const rightSpace = pad.left + plotW - cx;
+    const leftSpace = cx - pad.left;
+    const rawX = rightSpace >= pillW + 12 && rightSpace >= leftSpace ? cx + 8 : cx - pillW - 8;
+    const pillX = Math.max(pad.left + 4, Math.min(pad.left + plotW - pillW - 4, rawX));
+    const rawY = yForVal(annotationCallout.value) - pillH - 10;
+    let pillY = Math.max(pad.top + 6, Math.min(yBase - pillH - 6, rawY));
+    if (
+      hasDrawBandPill &&
+      bandLabelPosition === "top" &&
+      pillX < pad.left + 96 &&
+      pillY < pad.top + 28
+    ) {
+      pillY = Math.min(yBase - pillH - 6, pad.top + 30);
+    }
+
+    svg.append(
+      svgEl("rect", {
+        x: pillX,
+        y: pillY,
+        width: pillW,
+        height: pillH,
+        rx: 5,
+        class: "chart-callout-bg",
+      }),
+    );
     svg.append(
       svgEl(
         "text",
         {
-          x: tx,
-          y: cy,
-          "text-anchor": anchor,
+          x: pillX + pillW / 2,
+          y: pillY + 14,
+          "text-anchor": "middle",
           class: "chart-shock-callout",
         },
-        annotationCallout.label,
+        labelStr,
       ),
     );
   }
@@ -544,13 +587,14 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     titleId: "chart-balance-title",
     titleText: "Remaining Principal Balance vs. Zero-Prepayment Baseline",
     descText: `Loan balance trajectory starting at ${currencyFmt.format(config.initial_principal)} and paying off in ${summary.actual_months_to_payoff} months.`,
-    width: 780,
-    height: 310,
+    width: 640,
+    height: 290,
     maxMonth,
     yMax: niceAxisMax(balMaxRaw),
     drawPeriodMonths: config.draw_period_months,
     introMonth,
     repayMonth,
+    bandLabelPosition: "bottom",
     series: balSeries,
     legendItems: [
       { label: "Active Balance", color: "var(--chart-cobalt)", style: "solid" },
@@ -596,13 +640,14 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     titleId: "chart-payment-title",
     titleText: "Monthly Required Payment vs. Total Monthly Outlay",
     descText: `Monthly payment profile starting at ${currencyCentFmt.format(summary.initial_draw_payment)} during draw and shifting to ${currencyCentFmt.format(summary.first_repayment_payment)} at repayment.`,
-    width: 560,
-    height: 290,
+    width: 500,
+    height: 280,
     maxMonth: payMaxMonth,
     yMax: niceAxisMax(payMaxRaw),
     drawPeriodMonths: config.draw_period_months,
     introMonth: introMonth !== null && introMonth < payMaxMonth ? introMonth : null,
     repayMonth,
+    bandLabelPosition: "top",
     series: [
       ...(hasPrepay
         ? [
@@ -664,13 +709,14 @@ export function renderCharts({ balanceEl, paymentEl, interestEl, result }) {
     titleId: "chart-interest-title",
     titleText: "Cumulative Interest Paid vs. Zero-Prepayment Baseline",
     descText: `Total interest paid of ${currencyCentFmt.format(summary.total_interest_paid)}, saving ${currencyCentFmt.format(summary.interest_savings_vs_baseline)} compared to $0 prepayment.`,
-    width: 560,
-    height: 290,
+    width: 500,
+    height: 280,
     maxMonth,
     yMax: niceAxisMax(intMaxRaw),
     drawPeriodMonths: config.draw_period_months,
     introMonth,
     repayMonth,
+    bandLabelPosition: "top",
     betweenArea: hasPrepay ? { upper: cumBasePoints, lower: cumActivePoints } : null,
     series: [
       ...(hasPrepay

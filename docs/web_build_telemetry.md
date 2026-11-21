@@ -1,6 +1,6 @@
 # Web Build & Verification Telemetry
 
-**Date:** 2026-11-20  
+**Date:** 2026-11-21  
 **Branch:** `main`  
 **Target Repository:** `https://github.com/Hawzy/heloc-calculator`  
 **Target GitHub Pages URL:** `https://hawzy.github.io/heloc-calculator/`  
@@ -15,9 +15,9 @@ Measured after final build edits using Python `pathlib` and `gzip.compress(..., 
 | File | Uncompressed (Bytes) | Gzipped (Bytes) |
 | :--- | ---: | ---: |
 | `web/.nojekyll` | 0 | 20 |
-| `web/index.html` | 28,755 | 6,468 |
-| `web/styles.css` | 34,401 | 6,266 |
-| `web/js/app.js` | 29,132 | 7,319 |
+| `web/index.html` | 28,749 | 6,458 |
+| `web/styles.css` | 35,481 | 6,401 |
+| `web/js/app.js` | 30,058 | 7,514 |
 | `web/js/engine/formulas.js` | 1,923 | 744 |
 | `web/js/engine/index.js` | 511 | 293 |
 | `web/js/engine/models.js` | 5,365 | 1,622 |
@@ -26,14 +26,14 @@ Measured after final build edits using Python `pathlib` and `gzip.compress(..., 
 | `web/js/engine/simulator.js` | 6,920 | 1,968 |
 | `web/js/engine/trajectory.js` | 7,411 | 2,146 |
 | `web/js/ui/a11y.js` | 7,457 | 1,945 |
-| `web/js/ui/charts.js` | 21,923 | 5,931 |
+| `web/js/ui/charts.js` | 23,319 | 6,300 |
 | `web/js/ui/csv.js` | 1,974 | 935 |
 | `web/js/ui/presets.js` | 3,439 | 1,141 |
 | `web/js/ui/state.js` | 10,396 | 3,053 |
 | `web/js/ui/table.js` | 7,163 | 2,035 |
 | `web/js/ui/theme.js` | 2,768 | 1,023 |
 | **Core JS Engine Subtotal (7 files)** | **26,469 (25.85 KiB)** | **8,472 (8.27 KiB)** |
-| **Total Deployed Site (18 files)** | **173,877 (169.80 KiB)** | **44,608 (43.56 KiB)** |
+| **Total Deployed Site (18 files)** | **177,273 (173.12 KiB)** | **45,297 (44.24 KiB)** |
 
 ---
 
@@ -43,7 +43,7 @@ Measured after final build edits using Python `pathlib` and `gzip.compress(..., 
 | :--- | :--- | :--- | :--- |
 | Python Unit, CLI, Tool & Benchmark Suites | `.venv\Scripts\pytest.exe -v` | **58 passed** (`0` failed) | All 8 `tests/test_*.py` modules passed on Python 3.12.7 |
 | Golden Fixture Drift Check | `.venv\Scripts\python.exe scripts/generate_golden_fixtures.py --check` | **Passed** (exit `0`) | 12 benchmark & edge-case scenarios + 4 formula vector groups verified against live Python engine |
-| Node Parity & UI Utility Suites | `node --test web/tests/parity.test.mjs web/tests/ui-utils.test.mjs` | **14 passed** (`0` failed) | Node `v24.21.0`; `6` parity tests + `8` UI utility/ES-module tests |
+| Node Parity & UI Utility Suites | `node --test web/tests/parity.test.mjs web/tests/ui-utils.test.mjs` | **15 passed** (`0` failed) | Node `v24.21.0`; `6` parity tests + `9` UI utility/regression tests (including `step="any"` decimal-input regression guard) |
 | Observed Max Parity Delta (Python vs. JS) | `web/tests/parity.test.mjs` | **`$0.0000` / `0.000000%`** | Exact cent and APR agreement across every summary field, annual aggregate, milestone, and monthly row of all 12 golden scenarios (`CI gate <= $0.01` currency, `<= 0.0001%` rate) |
 
 ---
@@ -70,3 +70,13 @@ Verified via the browser subagent against `python -m http.server 8765 --bind 127
 - **Console Errors & Horizontal Overflow:** `0` console errors; `html`, `body`, and `main` width `374.67px <= 390px` (zero horizontal overflow).
 - **SVG Charts:** All 3 SVG charts scaled cleanly within viewport (`right = 302.00px <= 390px`).
 - **Responsive `@container` Table:** `.schedule-table thead` hidden (`isVisible() === false`), rendering rows as stacked labeled cards.
+
+### Post-QA Multi-Viewport Verification (`1440×900`, `768×1024`, `390×844`, `320×568`)
+Verified after the QA fixes (`step="any"` decimal inputs, named field error banners, `<figure>` margin reset, `.schedule-controls` inline layout, `@container (width < 780px)` card breakpoint, `#save-preset-btn` `nowrap`, and SVG backdrop pills):
+
+| Viewport | Body Width / Overflow | Highlights Verified |
+| :--- | :--- | :--- |
+| **Desktop (`1440×900`)** | Zero horizontal overflow (`0` console, `0` failed/external requests) | Fresh-load editing of prepayment, principal, intro checkbox, draw unit, balance method, year basis, and decimals (`18.25`, `2.33`) updated immediately with zero freeze; invalid `#lifetime-cap = 0` flagged the control and surfaced `Fix "Lifetime Cap (%)" to update results; displaying last valid trajectory.`; `.schedule-controls` sat inline on one row (`439.52×49.33px`); SVG backdrop pills (`chart-band-pill`, `chart-callout-bg`) rendered cleanly without overlapping curves across `Blueprint Rising`, `Stress Test 15yr`, and `WA 25% Usury Cap`. |
+| **Tablet (`768×1024`)** | `752.67px` (`0` overflow, `0` console errors) | Schedule cleanly switched to `@container (width < 780px)` stacked cards (`thead` hidden). |
+| **Mobile (`390×844`)** | `374.67px` (`0` overflow, `0` console errors) | All 3 SVG charts widened from `229px` to `328.54px` after resetting `<figure>` margins. |
+| **Small Mobile (`320×568`)** | `304.67px` (`0` overflow, `0` console errors) | All 3 SVG charts widened from `159px` to `258.54px`; `#save-preset-btn` stayed single-line (`97.95×48px`); Monthly `Mo 1` stacked card (`249.88×414.04px`) fit cleanly inside `.table-wrapper` (`266.54×454.40px`). |

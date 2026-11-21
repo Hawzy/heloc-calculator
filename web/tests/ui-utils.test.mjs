@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { calculateHelocTrajectory } from "../js/engine/index.js";
 import {
@@ -164,4 +167,26 @@ test("UI module exports load cleanly as ES modules", () => {
   assert.equal(typeof initFormValidation, "function");
   assert.equal(typeof renderCharts, "function");
   assert.equal(typeof renderScheduleTable, "function");
+});
+
+test("HTML decimal numeric inputs use step='any' to avoid stepMismatch on default/arbitrary values", () => {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const html = fs.readFileSync(path.resolve(__dirname, "../index.html"), "utf-8");
+  const decimalFields = [
+    "initial_principal",
+    "credit_limit",
+    "monthly_prepayment",
+    "prime_rate",
+    "margin",
+    "annual_rate_step",
+    "intro_apr",
+    "lifetime_rate_cap",
+    "regulatory_ceiling",
+  ];
+
+  for (const name of decimalFields) {
+    const tagMatch = html.match(new RegExp(`<input[^>]*name="${name}"[^>]*>`, "s"));
+    assert.ok(tagMatch, `Missing input tag for ${name}`);
+    assert.match(tagMatch[0], /\bstep="any"/, `Input ${name} must use step="any"`);
+  }
 });

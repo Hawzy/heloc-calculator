@@ -29,7 +29,8 @@
     box-sizing: border-box;
   }
 
-  body {
+  body,
+  figure {
     margin: 0;
   }
 
@@ -37,7 +38,6 @@
   h2,
   h3,
   p,
-  figure,
   ul,
   ol {
     margin-block: 0;
@@ -353,6 +353,13 @@
     }
   }
 
+  @media (max-width: 480px) {
+    .workspace-grid {
+      padding-inline: 0.65rem;
+      gap: 1rem;
+    }
+  }
+
   .controls-panel {
     background-color: var(--bg-surface);
     border: 1px solid var(--border-color);
@@ -583,8 +590,19 @@
   .save-preset-group,
   .compare-group {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
+    min-inline-size: 0;
+  }
+
+  .save-preset-group input {
+    flex: 1 1 150px;
+    min-inline-size: 0;
+  }
+
+  #save-preset-btn {
+    white-space: nowrap;
   }
 
   .save-preset-group input,
@@ -706,9 +724,18 @@
 
   .field input:not([type="range"], [type="checkbox"], [type="radio"]),
   .field select,
-  .field textarea,
-  .schedule-controls select {
+  .field textarea {
     inline-size: 100%;
+    min-block-size: 48px;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+  }
+
+  .schedule-controls select {
+    inline-size: auto;
     min-block-size: 48px;
     padding: 0.55rem 0.7rem;
     border: 1px solid var(--border-strong);
@@ -1115,9 +1142,16 @@
     opacity: 0.06;
   }
 
+  .chart-band-pill {
+    fill: var(--bg-surface);
+    fill-opacity: 0.9;
+    stroke: var(--border-color);
+    stroke-width: 1;
+  }
+
   .chart-band-label {
     fill: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
   }
 
@@ -1134,7 +1168,7 @@
 
   .chart-tick-label {
     fill: var(--text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
   }
 
@@ -1167,7 +1201,7 @@
   }
 
   .chart-marker-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
   }
 
@@ -1179,9 +1213,16 @@
     fill: var(--chart-crimson);
   }
 
+  .chart-callout-bg {
+    fill: var(--bg-surface);
+    fill-opacity: 0.94;
+    stroke: var(--chart-crimson);
+    stroke-width: 1.25;
+  }
+
   .chart-shock-callout {
     fill: var(--chart-crimson);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
   }
 
@@ -1296,7 +1337,7 @@
   .table-wrapper {
     overflow: auto;
     max-inline-size: 100%;
-    max-block-size: min(520px, 75dvh);
+    max-block-size: min(600px, 80dvh);
     container-type: inline-size;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -1383,8 +1424,8 @@
     color: var(--text-secondary);
   }
 
-  /* Responsive @container card-stack layout on narrow tables */
-  @container (width < 640px) {
+  /* Responsive @container card-stack layout on narrow/tablet tables */
+  @container (width < 780px) {
     .schedule-table,
     .schedule-table thead,
     .schedule-table tbody,
@@ -1419,6 +1460,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 0.75rem;
+      padding: 0.38rem 0.65rem;
       text-align: end;
     }
 
@@ -1433,6 +1475,17 @@
     .schedule-table tbody td:nth-child(10)::before { content: var(--label-10) ": "; font-weight: 600; color: var(--text-secondary); }
     .schedule-table tbody td:nth-child(11)::before { content: var(--label-11) ": "; font-weight: 600; color: var(--text-secondary); }
     .schedule-table tbody td:nth-child(12)::before { content: var(--label-12) ": "; font-weight: 600; color: var(--text-secondary); }
+  }
+
+  @media (max-width: 480px) {
+    .controls-panel,
+    .chart-card {
+      padding: 0.75rem;
+    }
+
+    .schedule-container {
+      padding: 0.5rem;
+    }
   }
 
   .footer-col h3 {
@@ -1513,5 +1566,11 @@
   .chart-savings-area,
   .chart-draw-band {
     fill: Highlight;
+  }
+
+  .chart-band-pill,
+  .chart-callout-bg {
+    fill: Canvas;
+    stroke: CanvasText;
   }
 }

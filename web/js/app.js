@@ -518,9 +518,19 @@ function main() {
     updateUtilizationMeter(principal, limit);
 
     let hasError = false;
+    let firstInvalidCtrl = null;
     form.querySelectorAll("input, select, textarea").forEach((ctrl) => {
-      if (!ctrl.disabled && !ctrl.validity.valid) {
-        hasError = true;
+      if (ctrl.disabled) return;
+      if (ctrl.validity.valid) {
+        if (ctrl !== principalEl && ctrl !== customRatesEl) {
+          ctrl.classList.remove("user-invalid-fallback");
+        }
+        return;
+      }
+      hasError = true;
+      if (!firstInvalidCtrl) firstInvalidCtrl = ctrl;
+      if (isCommit) {
+        ctrl.classList.add("user-invalid-fallback");
       }
     });
 
@@ -536,6 +546,7 @@ function main() {
         "Initial drawn balance cannot exceed credit limit.",
         { forceShow: true, announce: isCommit },
       );
+      firstInvalidCtrl ??= principalEl;
       hasError = true;
     }
 
@@ -554,6 +565,7 @@ function main() {
             forceShow: isCommit,
             announce: isCommit,
           });
+          firstInvalidCtrl ??= customRatesEl;
           hasError = true;
         } else {
           customRates = expanded.rates;
@@ -562,8 +574,18 @@ function main() {
     }
 
     if (hasError) {
+      if (isCommit) {
+        validation.syncAll(true);
+      }
+      const fieldLabel = firstInvalidCtrl?.labels?.[0]?.textContent?.trim();
+      validationBannerText.textContent = fieldLabel
+        ? `Fix "${fieldLabel}" to update results; displaying last valid trajectory.`
+        : "Fix highlighted parameter errors to update results; displaying last valid trajectory.";
       return { ok: false, params: null };
     }
+
+    validationBannerText.textContent =
+      "Fix highlighted parameter errors to update results; displaying last valid trajectory.";
 
     const drawRaw = Math.trunc(Number(drawDurEl.value));
     const repayRaw = Math.trunc(Number(repayDurEl.value));
